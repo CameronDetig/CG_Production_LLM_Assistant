@@ -8,6 +8,7 @@ from typing import List, Dict, Any, Optional
 import psycopg2
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
+from s3_utils import get_thumbnail_url
 
 logger = logging.getLogger()
 
@@ -132,6 +133,38 @@ def get_relevant_metadata(query: str, limit: int = 10, use_semantic: bool = True
     return keyword_search(query, limit)
 
 
+
+def _add_thumbnail_urls(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    Add presigned thumbnail URLs to search results.
+    
+    Args:
+        results: List of database query results
+        
+    Returns:
+        Results with thumbnail_url field added
+    """
+    for result in results:
+        # Determine which thumbnail path to use based on file type
+        thumbnail_path = None
+        file_type = result.get('file_type', '')
+        
+        if file_type == 'blend':
+            thumbnail_path = result.get('blend_thumbnail')
+        elif file_type == 'image':
+            thumbnail_path = result.get('image_thumbnail')
+        elif file_type == 'video':
+            thumbnail_path = result.get('video_thumbnail')
+        
+        # Generate presigned URL
+        if thumbnail_path:
+            result['thumbnail_url'] = get_thumbnail_url(thumbnail_path)
+        else:
+            result['thumbnail_url'] = None
+    
+    return results
+
+
 def search_by_text_embedding(query_embedding: List[float], limit: int = 10) -> List[Dict[str, Any]]:
     """
     Search using text embedding similarity (pgvector).
@@ -142,7 +175,7 @@ def search_by_text_embedding(query_embedding: List[float], limit: int = 10) -> L
         limit: Maximum number of results
         
     Returns:
-        List of similar file metadata with type-specific details
+        List of similar file metadata with type-specific details and thumbnail URLs
     """
     conn = None
     try:
@@ -200,6 +233,10 @@ def search_by_text_embedding(query_embedding: List[float], limit: int = 10) -> L
         results = cursor.fetchall()
         
         metadata_list = [dict(row) for row in results]
+        
+        # Add thumbnail URLs
+        metadata_list = _add_thumbnail_urls(metadata_list)
+        
         cursor.close()
         
         logger.info(f"Text embedding search returned {len(metadata_list)} results")
@@ -300,6 +337,10 @@ def search_by_image_embedding(query_text: str, limit: int = 10) -> List[Dict[str
         results = cursor.fetchall()
         
         metadata_list = [dict(row) for row in results]
+        
+        # Add thumbnail URLs
+        metadata_list = _add_thumbnail_urls(metadata_list)
+        
         cursor.close()
         
         logger.info(f"Image embedding search returned {len(metadata_list)} results")

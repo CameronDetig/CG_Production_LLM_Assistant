@@ -68,6 +68,45 @@ def stream_bedrock_response(prompt: str) -> Generator[str, None, None]:
         yield f"\n\n[Error: Unable to generate response - {str(e)}]"
 
 
+def invoke_bedrock_for_reasoning(prompt: str) -> str:
+    """
+    Invoke Bedrock model for reasoning (non-streaming).
+    Used by the agent for tool selection and reasoning steps.
+    
+    Args:
+        prompt: ReAct-style prompt for reasoning
+        
+    Returns:
+        Model's response text
+    """
+    model_id = os.environ.get('BEDROCK_MODEL_ID', 'meta.llama3-2-11b-instruct-v1:0')
+    
+    request_body = {
+        "prompt": prompt,
+        "max_gen_len": 512,  # Shorter for reasoning steps
+        "temperature": 0.3,  # Lower temperature for more focused reasoning
+        "top_p": 0.9,
+    }
+    
+    try:
+        logger.info(f"Calling Bedrock for reasoning: {model_id}")
+        
+        response = bedrock_runtime.invoke_model(
+            modelId=model_id,
+            body=json.dumps(request_body)
+        )
+        
+        response_body = json.loads(response.get('body').read())
+        text = response_body.get('generation', '')
+        
+        logger.info(f"Reasoning response length: {len(text)} chars")
+        return text
+        
+    except Exception as e:
+        logger.error(f"Error invoking Bedrock for reasoning: {str(e)}", exc_info=True)
+        return f"Error: {str(e)}"
+
+
 def build_prompt(query: str, metadata_results: List[Dict[str, Any]], db_stats: Dict[str, Any] = None) -> str:
     """
     Build prompt with metadata context for Llama model.

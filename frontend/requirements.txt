@@ -1,6 +1,9 @@
 # Gradio frontend
 gradio>=4.0.0
 requests>=2.31.0
+boto3>=1.34.0
+pillow>=10.0.0
+
 python-dotenv>=1.0.0
 
 # Local backend server

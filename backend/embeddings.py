@@ -144,3 +144,49 @@ def preload_models():
         logger.info("Embedding models preloaded successfully")
     except Exception as e:
         logger.warning(f"Failed to preload models: {str(e)}")
+
+
+def generate_image_embedding_from_base64(image_base64: str) -> List[float]:
+    """
+    Generate CLIP embedding from base64-encoded image.
+    Used for image upload search functionality.
+    
+    Args:
+        image_base64: Base64-encoded JPEG image (already resized to 512x512 client-side)
+        
+    Returns:
+        512-dimensional CLIP embedding vector
+        
+    Example:
+        >>> import base64
+        >>> with open('image.jpg', 'rb') as f:
+        ...     img_b64 = base64.b64encode(f.read()).decode('utf-8')
+        >>> embedding = generate_image_embedding_from_base64(img_b64)
+        >>> len(embedding)
+        512
+    """
+    try:
+        import base64
+        from io import BytesIO
+        
+        model, processor = get_clip_model()
+        
+        # Decode base64 to image
+        image_bytes = base64.b64decode(image_base64)
+        image = Image.open(BytesIO(image_bytes)).convert('RGB')
+        
+        # Generate CLIP embedding (same as generate_image_embedding but from PIL Image)
+        inputs = processor(images=image, return_tensors="pt")
+        
+        with torch.no_grad():
+            image_features = model.get_image_features(**inputs)
+        
+        # Normalize embedding
+        image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+        
+        return image_features[0].tolist()
+        
+    except Exception as e:
+        logger.error(f"Error generating CLIP embedding from base64: {str(e)}", exc_info=True)
+        # Return zero vector as fallback
+        return [0.0] * 512

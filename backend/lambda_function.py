@@ -1,27 +1,34 @@
 """
-AWS Lambda function for AI chatbot with Bedrock (Llama) and PostgreSQL integration.
-Handles streaming responses for real-time chat experience.
-Uses semantic search with text and image embeddings.
+AWS Lambda function for AI chatbot with LangGraph ReAct agent.
+Handles streaming responses, conversation management, and authentication.
 """
 
 import json
 import os
 import logging
-from typing import Dict, Any, Generator
-from database import get_relevant_metadata, init_db_connection
-from bedrock_client import stream_bedrock_response, build_prompt
+from typing import Dict, Any, Generator, Optional
+from database import init_db_connection
+from auth import extract_user_from_event
+from conversations import (
+    create_conversation,
+    get_conversation,
+    add_message,
+    get_conversation_context,
+    update_conversation_title,
+    generate_title_from_query
+)
+from agent import run_agent
+from bedrock_client import stream_bedrock_response
 
 # Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # Initialize database connection (reused across invocations)
-# For local testing, this can be skipped if SKIP_DB_INIT is set
 if not os.environ.get('SKIP_DB_INIT'):
     init_db_connection()
 
 # Optional: Preload embedding models to reduce cold start time
-# Uncomment if using containerized deployment (models are large ~500MB)
 # from embeddings import preload_models
 # preload_models()
 
@@ -30,12 +37,52 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Main Lambda handler for chatbot requests.
     
+    Supports multiple endpoints:
+    - POST /chat - Main chat endpoint with agent
+    - GET /conversations - List user's conversations
+    - GET /conversations/{id} - Get specific conversation
+    - DELETE /conversations/{id} - Delete conversation
+    
     Args:
-        event: API Gateway event with 'body' containing JSON payload
+        event: API Gateway event
         context: Lambda context object
         
     Returns:
-        Streaming response in SSE format
+        API Gateway response
+    """
+    try:
+        # Extract HTTP method and path
+        http_method = event.get('httpMethod', 'POST')
+        path = event.get('path', '/chat')
+        
+        # Route to appropriate handler
+        if path == '/chat' and http_method == 'POST':
+            return handle_chat(event, context)
+        elif path == '/conversations' and http_method == 'GET':
+            return handle_list_conversations(event, context)
+        elif path.startswith('/conversations/') and http_method == 'GET':
+            return handle_get_conversation(event, context)
+        elif path.startswith('/conversations/') and http_method == 'DELETE':
+            return handle_delete_conversation(event, context)
+        else:
+            return {
+                'statusCode': 404,
+                'headers': get_cors_headers(),
+                'body': json.dumps({'error': 'Endpoint not found'})
+            }
+            
+    except Exception as e:
+        logger.error(f"Lambda handler error: {str(e)}", exc_info=True)
+        return {
+            'statusCode': 500,
+            'headers': get_cors_headers(),
+            'body': json.dumps({'error': 'Internal server error'})
+        }
+
+
+def handle_chat(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """
+    Handle /chat endpoint - main agent interaction.
     """
     try:
         # Parse request body
@@ -45,7 +92,8 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             body = event.get('body', {})
         
         query = body.get('query', '')
-        user_id = body.get('user_id', 'anonymous')
+        conversation_id = body.get('conversation_id')
+        uploaded_image_base64 = body.get('uploaded_image_base64')
         
         if not query:
             return {
@@ -54,78 +102,112 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 'body': json.dumps({'error': 'Query is required'})
             }
         
+        # Extract user from JWT token
+        user_id = extract_user_from_event(event)
+        if not user_id:
+            # Allow anonymous for demo (or require auth by returning 401)
+            user_id = 'anonymous'
+            logger.warning("No valid auth token, using anonymous user")
+        
         logger.info(f"Processing query from user {user_id}: {query[:100]}")
         
-        # Check if this is a statistics/count query
-        count_keywords = ['how many', 'count', 'total', 'number of', 'statistics', 'stats']
-        is_count_query = any(keyword in query.lower() for keyword in count_keywords)
+        # Get or create conversation
+        conversation_history = []
+        if conversation_id:
+            # Load existing conversation
+            conversation = get_conversation(conversation_id, user_id)
+            if conversation:
+                conversation_history = get_conversation_context(conversation_id, user_id, max_messages=10)
+                logger.info(f"Loaded conversation {conversation_id} with {len(conversation_history)} messages")
+            else:
+                logger.warning(f"Conversation {conversation_id} not found, creating new one")
+                conversation_id = None
         
-        # Step 1: Retrieve relevant metadata from PostgreSQL
-        metadata_results = get_relevant_metadata(query, limit=50)
-        logger.info(f"Found {len(metadata_results)} relevant metadata entries")
+        if not conversation_id:
+            # Create new conversation
+            title = generate_title_from_query(query)
+            conversation_id = create_conversation(user_id, title)
+            logger.info(f"Created new conversation {conversation_id}: {title}")
         
-        # If it's a count query, also get database statistics
-        db_stats = None
-        if is_count_query:
-            from database import get_database_stats
-            db_stats = get_database_stats()
-            logger.info(f"Retrieved database stats: {db_stats.get('total_files', 0)} total files")
+        # Add user message to conversation
+        add_message(conversation_id, user_id, 'user', query)
         
-        # Step 2: Build prompt with context
-        prompt = build_prompt(query, metadata_results, db_stats)
-
+        # Run agent to get tool results and final answer prompt
+        agent_result = run_agent(
+            query=query,
+            conversation_history=conversation_history,
+            uploaded_image_base64=uploaded_image_base64,
+            max_iterations=5
+        )
         
-        # Step 3: Stream response from Bedrock
+        logger.info(f"Agent completed in {agent_result['iterations']} iterations with {len(agent_result['tool_results'])} tool calls")
+        
+        # Stream final response
         def generate_sse_stream() -> Generator[str, None, None]:
-            """Generate Server-Sent Events stream"""
-            try:
-                # Send start event
-                yield format_sse_event({
-                    'type': 'start',
-                    'metadata_count': len(metadata_results)
+            """Generate Server-Sent Events stream with agent steps and final answer"""
+            
+            # Stream agent reasoning steps
+            yield format_sse_event('agent_start', {
+                'conversation_id': conversation_id,
+                'iterations': agent_result['iterations']
+            })
+            
+            # Stream tool calls
+            for tool_result in agent_result['tool_results']:
+                yield format_sse_event('tool_call', {
+                    'tool': tool_result['tool'],
+                    'args': tool_result['args']
                 })
                 
-                # Stream Bedrock response
-                full_response = ""
-                for chunk in stream_bedrock_response(prompt):
-                    full_response += chunk
-                    yield format_sse_event({
-                        'type': 'chunk',
-                        'text': chunk
+                # Stream tool result summary
+                result = tool_result.get('result', [])
+                if isinstance(result, list):
+                    yield format_sse_event('tool_result', {
+                        'tool': tool_result['tool'],
+                        'count': len(result),
+                        'results': result[:3]  # First 3 results as preview
                     })
-                
-                # Send metadata context (optional - for UI to display sources)
-                if metadata_results:
-                    # Convert datetime objects to strings for JSON serialization
-                    serializable_metadata = []
-                    for item in metadata_results[:5]:
-                        serializable_item = dict(item)
-                        # Convert datetime fields to ISO format strings
-                        if 'created_date' in serializable_item and serializable_item['created_date']:
-                            serializable_item['created_date'] = serializable_item['created_date'].isoformat()
-                        if 'modified_date' in serializable_item and serializable_item['modified_date']:
-                            serializable_item['modified_date'] = serializable_item['modified_date'].isoformat()
-                        serializable_metadata.append(serializable_item)
                     
-                    yield format_sse_event({
-                        'type': 'metadata',
-                        'files': serializable_metadata
+                    # Stream thumbnails if available
+                    for item in result[:10]:  # Top 10 with thumbnails
+                        if item.get('thumbnail_url'):
+                            yield format_sse_event('thumbnail', {
+                                'file_id': item.get('id'),
+                                'file_name': item.get('file_name'),
+                                'thumbnail_url': item['thumbnail_url']
+                            })
+                elif isinstance(result, dict):
+                    yield format_sse_event('tool_result', {
+                        'tool': tool_result['tool'],
+                        'result': result
                     })
-                
-                # Send end event
-                yield format_sse_event({'type': 'end'})
-                
-                logger.info(f"Successfully streamed response ({len(full_response)} chars)")
-                
-                # Future: Store conversation in DynamoDB
-                # store_conversation(user_id, query, full_response, metadata_results)
-                
-            except Exception as e:
-                logger.error(f"Error during streaming: {str(e)}", exc_info=True)
-                yield format_sse_event({
-                    'type': 'error',
-                    'message': f'Streaming error: {str(e)}'
-                })
+            
+            # Stream final answer from Bedrock
+            yield format_sse_event('answer_start', {})
+            
+            full_response = ""
+            final_prompt = agent_result['final_answer']
+            
+            for chunk in stream_bedrock_response(final_prompt):
+                full_response += chunk
+                yield format_sse_event('answer_chunk', {'text': chunk})
+            
+            yield format_sse_event('answer_end', {})
+            
+            # Save assistant response to conversation
+            add_message(
+                conversation_id,
+                user_id,
+                'assistant',
+                full_response,
+                tool_calls=agent_result['tool_results']
+            )
+            
+            # Send final event
+            yield format_sse_event('done', {
+                'conversation_id': conversation_id,
+                'message_count': len(conversation_history) + 2  # +2 for user query and assistant response
+            })
         
         # Return streaming response
         return {
@@ -134,64 +216,166 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 **get_cors_headers(),
                 'Content-Type': 'text/event-stream',
                 'Cache-Control': 'no-cache',
-                'Connection': 'keep-alive',
+                'Connection': 'keep-alive'
             },
-            'body': generate_sse_stream()
+            'body': ''.join(generate_sse_stream())
         }
         
     except Exception as e:
-        logger.error(f"Error in lambda_handler: {str(e)}", exc_info=True)
+        logger.error(f"Error in handle_chat: {str(e)}", exc_info=True)
         return {
             'statusCode': 500,
             'headers': get_cors_headers(),
-            'body': json.dumps({
-                'error': 'Internal server error',
-                'message': str(e)
-            })
+            'body': json.dumps({'error': str(e)})
         }
 
 
-def format_sse_event(data: Dict[str, Any]) -> str:
-    """Format data as Server-Sent Event"""
-    return f"data: {json.dumps(data)}\n\n"
+def handle_list_conversations(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """
+    Handle GET /conversations - list user's conversations.
+    """
+    try:
+        user_id = extract_user_from_event(event)
+        if not user_id:
+            return {
+                'statusCode': 401,
+                'headers': get_cors_headers(),
+                'body': json.dumps({'error': 'Authentication required'})
+            }
+        
+        from conversations import list_conversations
+        conversations = list_conversations(user_id, limit=50)
+        
+        return {
+            'statusCode': 200,
+            'headers': get_cors_headers(),
+            'body': json.dumps({'conversations': conversations})
+        }
+        
+    except Exception as e:
+        logger.error(f"Error listing conversations: {str(e)}", exc_info=True)
+        return {
+            'statusCode': 500,
+            'headers': get_cors_headers(),
+            'body': json.dumps({'error': str(e)})
+        }
+
+
+def handle_get_conversation(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """
+    Handle GET /conversations/{id} - get specific conversation.
+    """
+    try:
+        user_id = extract_user_from_event(event)
+        if not user_id:
+            return {
+                'statusCode': 401,
+                'headers': get_cors_headers(),
+                'body': json.dumps({'error': 'Authentication required'})
+            }
+        
+        # Extract conversation_id from path
+        path_params = event.get('pathParameters', {})
+        conversation_id = path_params.get('id')
+        
+        if not conversation_id:
+            return {
+                'statusCode': 400,
+                'headers': get_cors_headers(),
+                'body': json.dumps({'error': 'Conversation ID required'})
+            }
+        
+        conversation = get_conversation(conversation_id, user_id)
+        
+        if not conversation:
+            return {
+                'statusCode': 404,
+                'headers': get_cors_headers(),
+                'body': json.dumps({'error': 'Conversation not found'})
+            }
+        
+        return {
+            'statusCode': 200,
+            'headers': get_cors_headers(),
+            'body': json.dumps({'conversation': conversation})
+        }
+        
+    except Exception as e:
+        logger.error(f"Error getting conversation: {str(e)}", exc_info=True)
+        return {
+            'statusCode': 500,
+            'headers': get_cors_headers(),
+            'body': json.dumps({'error': str(e)})
+        }
+
+
+def handle_delete_conversation(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """
+    Handle DELETE /conversations/{id} - delete conversation.
+    """
+    try:
+        user_id = extract_user_from_event(event)
+        if not user_id:
+            return {
+                'statusCode': 401,
+                'headers': get_cors_headers(),
+                'body': json.dumps({'error': 'Authentication required'})
+            }
+        
+        # Extract conversation_id from path
+        path_params = event.get('pathParameters', {})
+        conversation_id = path_params.get('id')
+        
+        if not conversation_id:
+            return {
+                'statusCode': 400,
+                'headers': get_cors_headers(),
+                'body': json.dumps({'error': 'Conversation ID required'})
+            }
+        
+        from conversations import delete_conversation
+        success = delete_conversation(conversation_id, user_id)
+        
+        if success:
+            return {
+                'statusCode': 200,
+                'headers': get_cors_headers(),
+                'body': json.dumps({'message': 'Conversation deleted'})
+            }
+        else:
+            return {
+                'statusCode': 404,
+                'headers': get_cors_headers(),
+                'body': json.dumps({'error': 'Conversation not found'})
+            }
+        
+    except Exception as e:
+        logger.error(f"Error deleting conversation: {str(e)}", exc_info=True)
+        return {
+            'statusCode': 500,
+            'headers': get_cors_headers(),
+            'body': json.dumps({'error': str(e)})
+        }
+
+
+def format_sse_event(event_type: str, data: Dict[str, Any]) -> str:
+    """
+    Format data as Server-Sent Event.
+    
+    Args:
+        event_type: Type of event (e.g., 'answer_chunk', 'tool_call')
+        data: Event data
+        
+    Returns:
+        Formatted SSE string
+    """
+    return f"event: {event_type}\ndata: {json.dumps(data)}\n\n"
 
 
 def get_cors_headers() -> Dict[str, str]:
-    """Get CORS headers for API responses"""
+    """Get CORS headers for API responses."""
     return {
-        'Access-Control-Allow-Origin': '*',  # Update with your Hugging Face Space URL
-        'Access-Control-Allow-Headers': 'Content-Type,X-Amz-Date,Authorization,X-Api-Key',
-        'Access-Control-Allow-Methods': 'POST,OPTIONS'
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Headers': 'Content-Type,Authorization',
+        'Access-Control-Allow-Methods': 'GET,POST,DELETE,OPTIONS'
     }
-
-
-def store_conversation(user_id: str, query: str, response: str, metadata: list):
-    """
-    Store conversation in DynamoDB (future implementation).
-    
-    Args:
-        user_id: User identifier
-        query: User's query
-        response: AI's response
-        metadata: Metadata context used
-    """
-    # TODO: Implement DynamoDB storage
-    # import boto3
-    # from datetime import datetime
-    # import uuid
-    # 
-    # dynamodb = boto3.resource('dynamodb')
-    # table = dynamodb.Table(os.environ.get('CONVERSATIONS_TABLE', 'conversations'))
-    # 
-    # table.put_item(
-    #     Item={
-    #         'conversation_id': str(uuid.uuid4()),
-    #         'user_id': user_id,
-    #         'timestamp': datetime.utcnow().isoformat(),
-    #         'query': query,
-    #         'response': response,
-    #         'metadata_used': metadata,
-    #         'model': os.environ.get('BEDROCK_MODEL_ID', 'llama-3.2-11b')
-    #     }
-    # )
-    pass
