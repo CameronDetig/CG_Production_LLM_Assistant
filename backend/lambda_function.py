@@ -16,7 +16,9 @@ logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
 # Initialize database connection (reused across invocations)
-init_db_connection()
+# For local testing, this can be skipped if SKIP_DB_INIT is set
+if not os.environ.get('SKIP_DB_INIT'):
+    init_db_connection()
 
 # Optional: Preload embedding models to reduce cold start time
 # Uncomment if using containerized deployment (models are large ~500MB)
@@ -55,7 +57,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         logger.info(f"Processing query from user {user_id}: {query[:100]}")
         
         # Step 1: Retrieve relevant metadata from PostgreSQL
-        metadata_results = get_relevant_metadata(query, limit=10)
+        metadata_results = get_relevant_metadata(query, limit=50)
         logger.info(f"Found {len(metadata_results)} relevant metadata entries")
         
         # Step 2: Build prompt with context
@@ -82,9 +84,20 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 
                 # Send metadata context (optional - for UI to display sources)
                 if metadata_results:
+                    # Convert datetime objects to strings for JSON serialization
+                    serializable_metadata = []
+                    for item in metadata_results[:5]:
+                        serializable_item = dict(item)
+                        # Convert datetime fields to ISO format strings
+                        if 'created_date' in serializable_item and serializable_item['created_date']:
+                            serializable_item['created_date'] = serializable_item['created_date'].isoformat()
+                        if 'modified_date' in serializable_item and serializable_item['modified_date']:
+                            serializable_item['modified_date'] = serializable_item['modified_date'].isoformat()
+                        serializable_metadata.append(serializable_item)
+                    
                     yield format_sse_event({
                         'type': 'metadata',
-                        'files': metadata_results[:5]  # Top 5 sources
+                        'files': serializable_metadata
                     })
                 
                 # Send end event
@@ -99,7 +112,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 logger.error(f"Error during streaming: {str(e)}", exc_info=True)
                 yield format_sse_event({
                     'type': 'error',
-                    'message': 'An error occurred while generating response'
+                    'message': f'Streaming error: {str(e)}'
                 })
         
         # Return streaming response
