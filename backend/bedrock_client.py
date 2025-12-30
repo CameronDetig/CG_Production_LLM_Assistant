@@ -79,31 +79,69 @@ def build_prompt(query: str, metadata_results: List[Dict[str, Any]]) -> str:
     Returns:
         Formatted prompt string
     """
-    # Format metadata context
+    # Format metadata context based on actual database schema
     context_parts = []
     for idx, item in enumerate(metadata_results, 1):
-        context_parts.append(
-            f"{idx}. {item.get('file_name', 'Unknown')} - "
-            f"Resolution: {item.get('resolution', 'N/A')}, "
-            f"Color Space: {item.get('color_space', 'N/A')}, "
-            f"Project: {item.get('project_name', 'N/A')}, "
-            f"Tags: {item.get('tags', 'N/A')}"
-        )
+        file_type = item.get('file_type', 'unknown')
+        
+        # Build context based on file type
+        if file_type == 'blend':
+            context_parts.append(
+                f"{idx}. **{item.get('file_name', 'Unknown')}** (Blender File)\n"
+                f"   - Path: {item.get('file_path', 'N/A')}\n"
+                f"   - Resolution: {item.get('resolution_x', 'N/A')}x{item.get('resolution_y', 'N/A')}\n"
+                f"   - Render Engine: {item.get('render_engine', 'N/A')}\n"
+                f"   - Frames: {item.get('num_frames', 'N/A')}\n"
+                f"   - Objects: {item.get('total_objects', 'N/A')}\n"
+                f"   - Modified: {item.get('modified_date', 'N/A')}"
+            )
+        elif file_type == 'image':
+            context_parts.append(
+                f"{idx}. **{item.get('file_name', 'Unknown')}** (Image)\n"
+                f"   - Path: {item.get('file_path', 'N/A')}\n"
+                f"   - Dimensions: {item.get('image_width', 'N/A')}x{item.get('image_height', 'N/A')}\n"
+                f"   - Mode: {item.get('image_mode', 'N/A')}\n"
+                f"   - Size: {_format_file_size(item.get('file_size', 0))}\n"
+                f"   - Modified: {item.get('modified_date', 'N/A')}"
+            )
+        elif file_type == 'video':
+            context_parts.append(
+                f"{idx}. **{item.get('file_name', 'Unknown')}** (Video)\n"
+                f"   - Path: {item.get('file_path', 'N/A')}\n"
+                f"   - Dimensions: {item.get('video_width', 'N/A')}x{item.get('video_height', 'N/A')}\n"
+                f"   - Duration: {item.get('duration', 'N/A')}s\n"
+                f"   - FPS: {item.get('video_fps', 'N/A')}\n"
+                f"   - Codec: {item.get('codec', 'N/A')}\n"
+                f"   - Modified: {item.get('modified_date', 'N/A')}"
+            )
+        else:
+            # Generic file
+            context_parts.append(
+                f"{idx}. **{item.get('file_name', 'Unknown')}** ({file_type})\n"
+                f"   - Path: {item.get('file_path', 'N/A')}\n"
+                f"   - Size: {_format_file_size(item.get('file_size', 0))}\n"
+                f"   - Modified: {item.get('modified_date', 'N/A')}"
+            )
+        
+        # Add similarity score if available
+        if 'similarity' in item:
+            context_parts[-1] += f"\n   - Relevance: {item['similarity']:.2%}"
     
-    context = "\n".join(context_parts) if context_parts else "No relevant files found."
+    context = "\n\n".join(context_parts) if context_parts else "No relevant files found in the database."
     
     # Llama 3.2 prompt format (instruction-following)
     prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
 
-You are an AI assistant helping artists and production teams find and understand their CG production assets. You have access to a database of Blender files with technical metadata.
+You are an AI assistant helping artists and production teams find and understand their CG production assets stored in a database. You have access to metadata about Blender files, images, videos, and other production files.
 
 Your role is to:
 - Answer questions about file locations, specifications, and project organization
 - Translate technical metadata into creative insights
 - Help artists make informed decisions about asset usage
 - Be concise, helpful, and production-focused
+- Reference specific files by name when answering
 
-Available file metadata:
+Available files matching the query:
 {context}
 <|eot_id|><|start_header_id|>user<|end_header_id|>
 
@@ -112,6 +150,18 @@ Available file metadata:
 """
     
     return prompt
+
+
+def _format_file_size(size_bytes: int) -> str:
+    """Format file size in human-readable format"""
+    if size_bytes is None:
+        return "N/A"
+    
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if size_bytes < 1024.0:
+            return f"{size_bytes:.1f} {unit}"
+        size_bytes /= 1024.0
+    return f"{size_bytes:.1f} TB"
 
 
 def select_model(query: str) -> str:
