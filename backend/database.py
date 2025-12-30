@@ -49,6 +49,56 @@ def release_connection(conn):
         connection_pool.putconn(conn)
 
 
+def get_database_stats() -> Dict[str, Any]:
+    """
+    Get database statistics including total counts.
+    Useful for queries like "how many files are in the database".
+    
+    Returns:
+        Dictionary with database statistics
+    """
+    conn = get_connection()
+    try:
+        cursor = conn.cursor()
+        
+        # Get total file count
+        cursor.execute("SELECT COUNT(*) FROM files")
+        total_files = cursor.fetchone()[0]
+        
+        # Get counts by file type
+        cursor.execute("""
+            SELECT file_type, COUNT(*) 
+            FROM files 
+            GROUP BY file_type 
+            ORDER BY COUNT(*) DESC
+        """)
+        files_by_type = {row[0]: row[1] for row in cursor.fetchall()}
+        
+        # Get counts for specific tables
+        cursor.execute("SELECT COUNT(*) FROM images")
+        total_images = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM videos")
+        total_videos = cursor.fetchone()[0]
+        
+        cursor.execute("SELECT COUNT(*) FROM blend_files")
+        total_blend_files = cursor.fetchone()[0]
+        
+        cursor.close()
+        
+        return {
+            'total_files': total_files,
+            'total_images': total_images,
+            'total_videos': total_videos,
+            'total_blend_files': total_blend_files,
+            'files_by_type': files_by_type
+        }
+    except Exception as e:
+        logger.error(f"Error getting database stats: {str(e)}", exc_info=True)
+        return {}
+    finally:
+        release_connection(conn)
+
 
 def get_relevant_metadata(query: str, limit: int = 10, use_semantic: bool = True) -> List[Dict[str, Any]]:
     """

@@ -68,13 +68,14 @@ def stream_bedrock_response(prompt: str) -> Generator[str, None, None]:
         yield f"\n\n[Error: Unable to generate response - {str(e)}]"
 
 
-def build_prompt(query: str, metadata_results: List[Dict[str, Any]]) -> str:
+def build_prompt(query: str, metadata_results: List[Dict[str, Any]], db_stats: Dict[str, Any] = None) -> str:
     """
     Build prompt with metadata context for Llama model.
     
     Args:
         query: User's query
         metadata_results: List of relevant metadata entries from database
+        db_stats: Optional database statistics for count queries
         
     Returns:
         Formatted prompt string
@@ -129,6 +130,22 @@ def build_prompt(query: str, metadata_results: List[Dict[str, Any]]) -> str:
     
     context = "\n\n".join(context_parts) if context_parts else "No relevant files found in the database."
     
+    # Add database statistics if provided (for count queries)
+    stats_context = ""
+    if db_stats:
+        stats_context = f"""
+
+DATABASE STATISTICS:
+- Total files in database: {db_stats.get('total_files', 0)}
+- Total images: {db_stats.get('total_images', 0)}
+- Total videos: {db_stats.get('total_videos', 0)}
+- Total Blender files: {db_stats.get('total_blend_files', 0)}
+
+Files by type:
+"""
+        for file_type, count in db_stats.get('files_by_type', {}).items():
+            stats_context += f"- {file_type}: {count}\n"
+    
     # Llama 3.2 prompt format (instruction-following)
     prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
 
@@ -140,8 +157,10 @@ Your role is to:
 - Help artists make informed decisions about asset usage
 - Be concise, helpful, and production-focused
 - Reference specific files by name when answering
+- When asked about counts or totals, use the DATABASE STATISTICS section which shows the ACTUAL total counts
 
-Available files matching the query:
+{stats_context}
+Available files matching the query (showing top {len(metadata_results)} most relevant):
 {context}
 <|eot_id|><|start_header_id|>user<|end_header_id|>
 

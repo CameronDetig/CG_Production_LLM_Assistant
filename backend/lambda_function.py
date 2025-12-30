@@ -56,12 +56,24 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         logger.info(f"Processing query from user {user_id}: {query[:100]}")
         
+        # Check if this is a statistics/count query
+        count_keywords = ['how many', 'count', 'total', 'number of', 'statistics', 'stats']
+        is_count_query = any(keyword in query.lower() for keyword in count_keywords)
+        
         # Step 1: Retrieve relevant metadata from PostgreSQL
         metadata_results = get_relevant_metadata(query, limit=50)
         logger.info(f"Found {len(metadata_results)} relevant metadata entries")
         
+        # If it's a count query, also get database statistics
+        db_stats = None
+        if is_count_query:
+            from database import get_database_stats
+            db_stats = get_database_stats()
+            logger.info(f"Retrieved database stats: {db_stats.get('total_files', 0)} total files")
+        
         # Step 2: Build prompt with context
-        prompt = build_prompt(query, metadata_results)
+        prompt = build_prompt(query, metadata_results, db_stats)
+
         
         # Step 3: Stream response from Bedrock
         def generate_sse_stream() -> Generator[str, None, None]:

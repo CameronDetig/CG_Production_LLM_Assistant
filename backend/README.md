@@ -22,7 +22,7 @@ Core metadata + `metadata_embedding` (Vector 384)
 - `videos` - duration, fps, codec, `visual_embedding` (Vector 512)
 - `blend_files` - render_engine, resolution, objects, `visual_embedding` (Vector 512)
 
-See [SCHEMA.md](file:///Users/cameron/Documents/CG_Production_LLM_Assistant/backend/SCHEMA.md) for details.
+See [docs/SCHEMA.md](docs/SCHEMA.md) for details.
 
 ---
 
@@ -89,7 +89,7 @@ DB_USER=your_username
 DB_PASSWORD=your_password
 DB_PORT=5432
 AWS_REGION=us-east-1
-BEDROCK_MODEL_ID=meta.llama3-2-11b-instruct-v1:0
+BEDROCK_MODEL_ID=us.meta.llama3-2-11b-instruct-v1:0
 ```
 
 ### Lambda Settings
@@ -199,6 +199,6 @@ WHERE file_name ILIKE '%keyword%'
 
 ## Support
 
-- **Schema**: [SCHEMA.md](file:///Users/cameron/Documents/CG_Production_LLM_Assistant/backend/SCHEMA.md)
+- **Schema**: [docs/SCHEMA.md](docs/SCHEMA.md)
 - **Deployment**: See Dockerfile and deploy commands above
 - **Logs**: CloudWatch → Lambda → cg-production-chatbot

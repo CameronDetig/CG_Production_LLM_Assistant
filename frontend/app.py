@@ -103,16 +103,14 @@ def create_demo():
         
         gr.Markdown(
             """
-            # 🎨 CG Production LLM Assistant
+            # CG Production LLM Assistant
             
-            Ask questions about your Blender files, renders, and production assets.
-            The assistant uses semantic search to find relevant files and provides intelligent answers.
+            Ask questions about the Blender Studio's database of files, renders, and production assets from their short films.
             
             **Example queries:**
-            - "Show me all Cycles renders from this week"
             - "Find 4K resolution Blender files"
-            - "What files use the Eevee render engine?"
-            - "Show me files with dark moody lighting"
+            - "Where are the files for the autumn character located?"
+            - "What are the top three longest renders?"
             """
         )
         
@@ -120,11 +118,9 @@ def create_demo():
         chatbot = gr.ChatInterface(
             fn=chat_with_backend,
             examples=[
-                "Show me all Blender files with Cycles renders",
-                "Find 4K resolution files",
-                "What files were modified this week?",
-                "Show me files with dark moody lighting",
-                "List all video files with their durations"
+                "Find 4K resolution Blender files",
+                "Where are the files for the autumn character located?",
+                "What are the top three longest renders?"
             ],
         )
         
@@ -135,7 +131,7 @@ def create_demo():
                 ---
                 **Backend:** `{API_ENDPOINT}` | **Streaming:** {'✅ Enabled' if USE_STREAMING else '❌ Disabled'}
                 
-                💡 **Tip:** The first query may take 10-15 seconds as the Lambda function loads embedding models.
+                **Tip:** The first query may take 10-15 seconds as the Lambda function loads embedding models.
                 """
             )
     

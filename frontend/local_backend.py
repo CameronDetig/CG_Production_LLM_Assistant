@@ -219,11 +219,11 @@ def test_semantic_search():
 
 if __name__ == '__main__':
     print("=" * 80)
-    print("🚀 CG Production LLM Assistant - Local Backend")
+    print("CG Production LLM Assistant - Local Backend")
     print("=" * 80)
     print()
     print("This local backend reuses the Lambda function code for consistency.")
-    print("Easy transition to AWS: deploy the Lambda function with the same code!")
+    print("Easy transition to AWS: deploy the Lambda function with the same code.")
     print()
     
     # Check environment variables
