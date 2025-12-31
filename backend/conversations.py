@@ -14,7 +14,7 @@ from botocore.exceptions import ClientError
 logger = logging.getLogger()
 
 # Initialize DynamoDB client (reused across Lambda invocations)
-dynamodb = boto3.resource('dynamodb', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
+dynamodb = boto3.resource('dynamodb', region_name=os.environ.get('AWS_REGION', 'us-east-1'))  # AWS_REGION is auto-set by Lambda
 
 # Configuration
 TABLE_NAME = os.environ.get('DYNAMODB_TABLE_NAME', 'cg-chatbot-conversations')

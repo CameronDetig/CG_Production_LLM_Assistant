@@ -22,7 +22,7 @@ Lambda will generate presigned URLs for secure, temporary access to these thumbn
    - Click **"Create bucket"**
 
 2. **Configure Bucket**:
-   - **Bucket name**: `cg-production-thumbnails`
+   - **Bucket name**: `cg-production-data-thumbnails`
    - **Region**: `us-east-1` (same as Lambda)
    - **Block Public Access**: Keep all enabled (we'll use presigned URLs)
    - Click **"Create bucket"**
@@ -30,7 +30,7 @@ Lambda will generate presigned URLs for secure, temporary access to these thumbn
 ### Using AWS CLI
 
 ```bash
-aws s3 mb s3://cg-production-thumbnails --region us-east-1
+aws s3 mb s3://cg-production-data-thumbnails --region us-east-1
 ```
 
 ---
@@ -40,7 +40,7 @@ aws s3 mb s3://cg-production-thumbnails --region us-east-1
 The bucket should have three folders matching your file types:
 
 ```
-cg-production-thumbnails/
+cg-production-data-thumbnails/
 ├── blend/
 │   └── {file_id}_thumb.jpg
 ├── images/
@@ -51,7 +51,7 @@ cg-production-thumbnails/
 
 ### Create Folders (AWS Console)
 
-1. Open the `cg-production-thumbnails` bucket
+1. Open the `cg-production-data-thumbnails` bucket
 2. Click **"Create folder"**
 3. Create three folders: `blend`, `images`, `videos`
 
@@ -60,9 +60,9 @@ cg-production-thumbnails/
 ```bash
 # Create placeholder files to establish folder structure
 touch .placeholder
-aws s3 cp .placeholder s3://cg-production-thumbnails/blend/.placeholder
-aws s3 cp .placeholder s3://cg-production-thumbnails/images/.placeholder
-aws s3 cp .placeholder s3://cg-production-thumbnails/videos/.placeholder
+aws s3 cp .placeholder s3://cg-production-data-thumbnails/blend/.placeholder
+aws s3 cp .placeholder s3://cg-production-data-thumbnails/images/.placeholder
+aws s3 cp .placeholder s3://cg-production-data-thumbnails/videos/.placeholder
 rm .placeholder
 ```
 
@@ -89,7 +89,7 @@ Create `s3-bucket-policy.json`:
       "Action": [
         "s3:GetObject"
       ],
-      "Resource": "arn:aws:s3:::cg-production-thumbnails/*"
+      "Resource": "arn:aws:s3:::cg-production-data-thumbnails/*"
     }
   ]
 }
@@ -106,7 +106,7 @@ aws sts get-caller-identity --query Account --output text
 
 ```bash
 aws s3api put-bucket-policy \
-  --bucket cg-production-thumbnails \
+  --bucket cg-production-data-thumbnails \
   --policy file://s3-bucket-policy.json
 ```
 
@@ -140,7 +140,7 @@ Add S3 permissions to your Lambda execution role.
       "Action": [
         "s3:GetObject"
       ],
-      "Resource": "arn:aws:s3:::cg-production-thumbnails/*"
+      "Resource": "arn:aws:s3:::cg-production-data-thumbnails/*"
     }
   ]
 }
@@ -159,7 +159,7 @@ cat > s3-lambda-policy.json << 'EOF'
       "Action": [
         "s3:GetObject"
       ],
-      "Resource": "arn:aws:s3:::cg-production-thumbnails/*"
+      "Resource": "arn:aws:s3:::cg-production-data-thumbnails/*"
     }
   ]
 }
@@ -172,44 +172,11 @@ aws iam put-role-policy \
   --policy-document file://s3-lambda-policy.json
 ```
 
----
 
-## Step 5: Upload Existing Thumbnails (Optional)
-
-If you already have thumbnails generated, upload them to S3.
-
-### Thumbnail Naming Convention
-
-Thumbnails should be named: `{file_id}_thumb.jpg`
-
-Where `file_id` matches the `id` column in your PostgreSQL `files` table.
-
-### Upload Using AWS CLI
-
-```bash
-# Sync local thumbnail directory to S3
-# Assuming you have:
-# ./thumbnails/blend/
-# ./thumbnails/images/
-# ./thumbnails/videos/
-
-aws s3 sync ./thumbnails/blend/ s3://cg-production-thumbnails/blend/ --exclude ".*"
-aws s3 sync ./thumbnails/images/ s3://cg-production-thumbnails/images/ --exclude ".*"
-aws s3 sync ./thumbnails/videos/ s3://cg-production-thumbnails/videos/ --exclude ".*"
-```
-
-### Verify Upload
-
-```bash
-# List objects in bucket
-aws s3 ls s3://cg-production-thumbnails/blend/ --recursive --human-readable
-aws s3 ls s3://cg-production-thumbnails/images/ --recursive --human-readable
-aws s3 ls s3://cg-production-thumbnails/videos/ --recursive --human-readable
-```
 
 ---
 
-## Step 6: Update Lambda Environment Variables
+## Step 5: Update Lambda Environment Variables
 
 Add the S3 bucket name to Lambda configuration.
 
@@ -219,7 +186,7 @@ Add the S3 bucket name to Lambda configuration.
 2. Click **"Configuration"** → **"Environment variables"** → **"Edit"**
 3. Add:
    - **Key**: `THUMBNAIL_BUCKET`
-   - **Value**: `cg-production-thumbnails`
+   - **Value**: `cg-production-data-thumbnails`
 4. Click **"Save"**
 
 ### Using AWS CLI
@@ -239,7 +206,7 @@ aws lambda update-function-configuration \
 
 ---
 
-## Step 7: Test Presigned URL Generation
+## Step 6: Test Presigned URL Generation
 
 Once `s3_utils.py` is implemented, test presigned URL generation:
 

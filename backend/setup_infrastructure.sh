@@ -5,7 +5,7 @@
 
 set -e  # Exit on error
 
-echo "🚀 CG Production LLM Assistant - Infrastructure Setup"
+echo "CG Production LLM Assistant - Infrastructure Setup"
 echo "======================================================"
 echo ""
 
@@ -23,25 +23,25 @@ echo ""
 
 echo "📦 Step 1: Creating S3 Thumbnail Bucket..."
 
-if aws s3 ls s3://cg-production-thumbnails 2>/dev/null; then
-    echo "✅ S3 bucket 'cg-production-thumbnails' already exists"
+if aws s3 ls s3://cg-production-data-thumbnails 2>/dev/null; then
+    echo "✅ S3 bucket 'cg-production-data-thumbnails' already exists"
 else
-    aws s3 mb s3://cg-production-thumbnails --region $REGION
-    echo "✅ Created S3 bucket 'cg-production-thumbnails'"
+    aws s3 mb s3://cg-production-data-thumbnails --region $REGION
+    echo "✅ Created S3 bucket 'cg-production-data-thumbnails'"
 fi
 
 # Create folder structure
 echo "📁 Creating folder structure (blend, images, videos)..."
 touch .placeholder
-aws s3 cp .placeholder s3://cg-production-thumbnails/blend/.placeholder 2>/dev/null || true
-aws s3 cp .placeholder s3://cg-production-thumbnails/images/.placeholder 2>/dev/null || true
-aws s3 cp .placeholder s3://cg-production-thumbnails/videos/.placeholder 2>/dev/null || true
+aws s3 cp .placeholder s3://cg-production-data-thumbnails/blend/.placeholder 2>/dev/null || true
+aws s3 cp .placeholder s3://cg-production-data-thumbnails/images/.placeholder 2>/dev/null || true
+aws s3 cp .placeholder s3://cg-production-data-thumbnails/videos/.placeholder 2>/dev/null || true
 rm .placeholder
 echo "✅ Folder structure created"
 
 # Apply bucket policy
 echo "🔒 Applying S3 bucket policy..."
-cat > /tmp/s3-bucket-policy.json << EOF
+cat > /tmp/thumbnail_bucket_policy.json << EOF
 {
   "Version": "2012-10-17",
   "Statement": [
@@ -54,15 +54,15 @@ cat > /tmp/s3-bucket-policy.json << EOF
       "Action": [
         "s3:GetObject"
       ],
-      "Resource": "arn:aws:s3:::cg-production-thumbnails/*"
+      "Resource": "arn:aws:s3:::cg-production-data-thumbnails/*"
     }
   ]
 }
 EOF
 
 aws s3api put-bucket-policy \
-  --bucket cg-production-thumbnails \
-  --policy file:///tmp/s3-bucket-policy.json
+  --bucket cg-production-data-thumbnails \
+  --policy file:///tmp/thumbnail_bucket_policy.json
 
 echo "✅ S3 bucket policy applied"
 echo ""
@@ -71,7 +71,7 @@ echo ""
 # DynamoDB Conversations Table
 # ============================================================================
 
-echo "💾 Step 2: Creating DynamoDB Conversations Table..."
+echo "Step 2: Creating DynamoDB Conversations Table..."
 
 if aws dynamodb describe-table --table-name cg-chatbot-conversations --region $REGION 2>/dev/null; then
     echo "✅ DynamoDB table 'cg-chatbot-conversations' already exists"
@@ -143,7 +143,7 @@ echo ""
 # AWS Cognito User Pool
 # ============================================================================
 
-echo "🔐 Step 3: Creating Cognito User Pool..."
+echo "Step 3: Creating Cognito User Pool..."
 
 # Check if user pool exists
 USER_POOL_ID=$(aws cognito-idp list-user-pools --max-results 50 --region $REGION \
@@ -211,7 +211,7 @@ echo ""
 # Update Lambda IAM Role
 # ============================================================================
 
-echo "🔑 Step 4: Updating Lambda IAM Role..."
+echo "Step 4: Updating Lambda IAM Role..."
 
 # Apply updated IAM policy
 aws iam put-role-policy \
@@ -226,7 +226,7 @@ echo ""
 # Update Lambda Environment Variables
 # ============================================================================
 
-echo "⚙️  Step 5: Updating Lambda Environment Variables..."
+echo "Step 5: Updating Lambda Environment Variables..."
 
 # Get current environment variables
 CURRENT_ENV=$(aws lambda get-function-configuration \
@@ -237,7 +237,7 @@ CURRENT_ENV=$(aws lambda get-function-configuration \
 
 # Merge with new variables using jq
 NEW_ENV=$(echo $CURRENT_ENV | jq \
-  --arg bucket "cg-production-thumbnails" \
+  --arg bucket "cg-production-data-thumbnails" \
   --arg table "cg-chatbot-conversations" \
   --arg pool "$USER_POOL_ID" \
   --arg client "$CLIENT_ID" \
@@ -266,7 +266,7 @@ echo "✨ Infrastructure Setup Complete!"
 echo "=================================="
 echo ""
 echo "📋 Configuration Summary:"
-echo "  S3 Bucket: cg-production-thumbnails"
+echo "  S3 Bucket: cg-production-data-thumbnails"
 echo "  DynamoDB Table: cg-chatbot-conversations"
 echo "  Cognito User Pool ID: $USER_POOL_ID"
 echo "  Cognito Client ID: $CLIENT_ID"
@@ -274,7 +274,7 @@ echo "  Demo Account: demo@cgassistant.com / DemoPass10!"
 echo ""
 echo "📝 Next Steps:"
 echo "  1. Upload thumbnails to S3 (if you have them):"
-echo "     aws s3 sync ./thumbnails/ s3://cg-production-thumbnails/"
+echo "     aws s3 sync ./thumbnails/ s3://cg-production-data-thumbnails/"
 echo ""
 echo "  2. Implement backend modules:"
 echo "     - s3_utils.py"

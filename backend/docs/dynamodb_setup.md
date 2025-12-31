@@ -74,9 +74,9 @@ DynamoDB will store:
 3. **Create GSI**:
    - Wait for table to be created
    - Click on the table → **"Indexes"** tab → **"Create index"**
+   - **Index name**: `user_id-created_at-index`
    - **Partition key**: `user_id` (String)
    - **Sort key**: `created_at` (String)
-   - **Index name**: `user_id-created_at-index`
    - **Projected attributes**: All
    - Click **"Create index"**
 

@@ -1,4 +1,4 @@
-# Container Deployment Quick Start
+# Container Deployment Guide
 
 This guide provides step-by-step instructions for deploying the Lambda function using Docker containers.
 
@@ -9,6 +9,8 @@ This guide provides step-by-step instructions for deploying the Lambda function 
 - AWS account ID
 
 ## Step 1: Set Environment Variables
+
+Using a bash shell (Linux, macOS, WSL):
 
 ```bash
 export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
@@ -27,17 +29,27 @@ aws ecr create-repository \
 
 ## Step 3: Build Docker Image
 
+**Important**: Use `docker buildx` with specific flags to ensure Lambda compatibility:
+
 ```bash
-# From the backend directory
-docker build -t $REPO_NAME .
+cd backend
+docker buildx build \
+  --platform linux/amd64 \
+  --provenance=false \
+  --sbom=false \
+  --load \
+  -t $REPO_NAME .
 ```
 
+> **Why these flags?** AWS Lambda requires Docker v2 manifest format. Without `--provenance=false` and `--sbom=false`, Docker creates OCI manifests that Lambda rejects.
+
 This will:
-- Install Python dependencies (boto3, psycopg2, sentence-transformers, CLIP, etc.)
+- Build for x86_64 architecture (required for standard Lambda)
+- Install Python dependencies using multi-stage build
 - Copy Lambda function code
 - Set up the Lambda runtime environment
 
-**Build time**: ~5-10 minutes (downloads ~500MB of models)
+**Build time**: ~15-20 minutes first time (downloads PyTorch ~2GB + models ~500MB)
 
 ## Step 4: Authenticate with ECR
 
@@ -89,16 +101,24 @@ aws lambda update-function-configuration \
 aws lambda update-function-configuration \
     --function-name $FUNCTION_NAME \
     --environment "Variables={
-        DB_HOST=your-rds-endpoint.us-east-1.rds.amazonaws.com,
-        DB_NAME=your_database_name,
-        DB_USER=your_username,
-        DB_PASSWORD=your_password,
-        DB_PORT=5432,
-        AWS_REGION=us-east-1,
+        DB_HOST=your-rds-endpoint.us-east-1.rds.amazonaws.com
+        DB_NAME=your_database_name
+        DB_USER=your_username
+        DB_PASSWORD=your_password
+        DB_PORT=5432
         BEDROCK_MODEL_ID=meta.llama3-2-11b-instruct-v1:0
+        THUMBNAIL_BUCKET=cg-production-data-thumbnails
+        COGNITO_USER_POOL_ID=us-east-1_abc123xyz
+        COGNITO_CLIENT_ID=your-client-id
+        COGNITO_REGION=us-east-1
     }" \
     --region $REGION
 ```
+
+### Under Configuration > RDS databases:
+add a connection to the cg-metadate-db database
+
+> **Note**: `AWS_REGION` is automatically set by Lambda and cannot be overridden. Your code will use the region where the Lambda function is deployed.
 
 ## Step 9: Test the Function
 
@@ -123,11 +143,11 @@ cat response.json
 
 ## Updating the Function
 
-When you make code changes:
+When you make code changes that require a new image to be built, follow these steps:
 
 ```bash
-# Rebuild image
-docker build -t $REPO_NAME .
+# Rebuild image with Lambda-compatible manifest
+docker buildx build --platform linux/amd64 --provenance=false --sbom=false --load -t $REPO_NAME .
 
 # Tag and push
 docker tag $REPO_NAME:latest \
@@ -143,6 +163,22 @@ aws lambda update-function-code \
 ```
 
 ## Troubleshooting
+
+### "Image manifest, config or layer media type is not supported"
+
+This error occurs when Lambda receives an OCI manifest instead of Docker v2 format.
+
+**Solution**: Rebuild with the correct flags:
+```bash
+docker buildx build \
+  --platform linux/amd64 \
+  --provenance=false \
+  --sbom=false \
+  --load \
+  -t $REPO_NAME .
+```
+
+Then re-tag and push to ECR.
 
 ### Build fails with "no space left on device"
 ```bash

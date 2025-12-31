@@ -109,7 +109,8 @@ if __name__ == '__main__':
     print()
     
     # Check environment variables
-    required_vars = ['DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASSWORD', 'AWS_REGION']
+    # Note: AWS_REGION is auto-set by Lambda, only required for local testing
+    required_vars = ['DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASSWORD']
     missing_vars = [var for var in required_vars if not os.environ.get(var)]
     
     if missing_vars:

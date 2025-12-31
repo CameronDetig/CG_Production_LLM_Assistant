@@ -12,7 +12,7 @@ from botocore.exceptions import ClientError
 logger = logging.getLogger()
 
 # Initialize S3 client (reused across Lambda invocations)
-s3_client = boto3.client('s3', region_name=os.environ.get('AWS_REGION', 'us-east-1'))
+s3_client = boto3.client('s3', region_name=os.environ.get('AWS_REGION', 'us-east-1'))  # AWS_REGION is auto-set by Lambda
 
 # Configuration
 BUCKET_NAME = os.environ.get('THUMBNAIL_BUCKET', 'cg-production-thumbnails')

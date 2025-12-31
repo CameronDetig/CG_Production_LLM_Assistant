@@ -58,12 +58,15 @@ export REPO_NAME="cg-chatbot"
 # Create ECR repo
 aws ecr create-repository --repository-name $REPO_NAME --region $REGION
 
-# Build and push
-docker build -t $REPO_NAME .
+# Build with Lambda-compatible manifest (IMPORTANT!)
+docker buildx build --platform linux/amd64 --provenance=false --sbom=false --load -t $REPO_NAME .
+
+# Login to ECR
 aws ecr get-login-password --region $REGION | \
     docker login --username AWS --password-stdin \
     $AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
 
+# Tag and push
 docker tag $REPO_NAME:latest \
     $AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME:latest
 docker push $AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME:latest
@@ -73,6 +76,8 @@ aws lambda update-function-code \
     --function-name cg-production-chatbot \
     --image-uri $AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME:latest
 ```
+
+> **Note**: The `--provenance=false --sbom=false` flags are required to create Docker v2 manifests that Lambda accepts. Without these, you'll get "image manifest media type not supported" errors.
 
 ---
 
@@ -88,9 +93,10 @@ DB_NAME=your_database_name
 DB_USER=your_username
 DB_PASSWORD=your_password
 DB_PORT=5432
-AWS_REGION=us-east-1
 BEDROCK_MODEL_ID=us.meta.llama3-2-11b-instruct-v1:0
 ```
+
+> **Note**: `AWS_REGION` is automatically set by Lambda. Only set it in `.env` for local testing.
 
 ### Lambda Settings
 
@@ -180,6 +186,11 @@ WHERE file_name ILIKE '%keyword%'
 ---
 
 ## Troubleshooting
+
+**"Image manifest media type not supported"?**
+- Lambda rejects OCI manifests (Docker Buildx default)
+- Rebuild with: `docker buildx build --platform linux/amd64 --provenance=false --sbom=false --load -t $REPO_NAME .`
+- Then re-tag and push to ECR
 
 **Cold start slow?**
 - First request loads models (~10-15s)

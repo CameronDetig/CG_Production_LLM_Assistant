@@ -13,7 +13,7 @@ logger = logging.getLogger()
 # Initialize Bedrock client (reused across invocations)
 bedrock_runtime = boto3.client(
     service_name='bedrock-runtime',
-    region_name=os.environ.get('AWS_REGION', 'us-east-1')
+    region_name=os.environ.get('AWS_REGION', 'us-east-1')  # AWS_REGION is auto-set by Lambda
 )
 
 

@@ -43,10 +43,10 @@ AWS Cognito will handle:
    - Click **"Next"**
 
 6. **Integrate Your App**:
-   - **User pool name**: `cg-production-assistant-users`
+   - **User pool name**: `cg-production-assistant-user-pool`
    - **Hosted authentication pages**: No (we'll use custom Gradio UI)
    - **Initial app client**:
-     - **App client name**: `cg-assistant-client`
+     - **App client name**: `cg-production-assistant-client`
      - **Client secret**: Don't generate (public client)
      - **Authentication flows**: ✅ ALLOW_USER_PASSWORD_AUTH
    - Click **"Next"**
