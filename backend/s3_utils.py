@@ -24,16 +24,16 @@ def get_thumbnail_url(thumbnail_path: str, expiration: int = DEFAULT_EXPIRATION)
     Generate presigned URL for thumbnail access.
     
     Args:
-        thumbnail_path: S3 key for thumbnail (e.g., 'images/123_thumb.jpg' or 's3://bucket/images/123_thumb.jpg')
+        thumbnail_path: S3 key for thumbnail (e.g., 'image/123_thumb.jpg' or 's3://bucket/image/123_thumb.jpg')
         expiration: URL expiration time in seconds (default: 3600 = 1 hour)
         
     Returns:
         Presigned URL string, or None if generation fails
         
     Example:
-        >>> url = get_thumbnail_url('images/123_thumb.jpg')
+        >>> url = get_thumbnail_url('image/123_thumb.jpg')
         >>> print(url)
-        'https://cg-production-thumbnails.s3.amazonaws.com/images/123_thumb.jpg?X-Amz-Algorithm=...'
+        'https://cg-production-thumbnails.s3.amazonaws.com/image/123_thumb.jpg?X-Amz-Algorithm=...'
     """
     if not thumbnail_path:
         return None
@@ -74,9 +74,9 @@ def batch_get_thumbnail_urls(thumbnail_paths: List[str], expiration: int = DEFAU
         Dictionary mapping thumbnail_path -> presigned_url
         
     Example:
-        >>> paths = ['images/123_thumb.jpg', 'videos/456_thumb.jpg']
+        >>> paths = ['image/123_thumb.jpg', 'video/456_thumb.jpg']
         >>> urls = batch_get_thumbnail_urls(paths)
-        >>> print(urls['images/123_thumb.jpg'])
+        >>> print(urls['image/123_thumb.jpg'])
         'https://...'
     """
     result = {}
@@ -101,16 +101,16 @@ def get_thumbnail_path(file_id: int, file_type: str) -> str:
     Example:
         >>> path = get_thumbnail_path(123, 'image')
         >>> print(path)
-        'images/123_thumb.jpg'
+        'image/123_thumb.jpg'
     """
     # Map file types to S3 folders
     folder_map = {
-        'image': 'images',
-        'video': 'videos',
+        'image': 'image',
+        'video': 'video',
         'blend': 'blend'
     }
     
-    folder = folder_map.get(file_type, 'images')
+    folder = folder_map.get(file_type, 'image')
     return f"{folder}/{file_id}_thumb.jpg"
 
 
@@ -131,7 +131,7 @@ def upload_thumbnail(file_id: int, file_type: str, image_bytes: bytes) -> Option
         ...     image_bytes = f.read()
         >>> key = upload_thumbnail(123, 'image', image_bytes)
         >>> print(key)
-        'images/123_thumb.jpg'
+        'image/123_thumb.jpg'
     """
     try:
         key = get_thumbnail_path(file_id, file_type)

@@ -6,6 +6,7 @@ Handles streaming responses, conversation management, and authentication.
 import json
 import os
 import logging
+import time
 from typing import Dict, Any, Generator, Optional
 from database import init_db_connection
 from auth import extract_user_from_event
@@ -28,9 +29,9 @@ logger.setLevel(logging.INFO)
 if not os.environ.get('SKIP_DB_INIT'):
     init_db_connection()
 
-# Optional: Preload embedding models to reduce cold start time
-# from embeddings import preload_models
-# preload_models()
+# Preload embedding models to reduce cold start time
+from embeddings import preload_models
+preload_models()
 
 
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
@@ -133,66 +134,107 @@ def handle_chat(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         add_message(conversation_id, user_id, 'user', query)
         
         # Run agent to get tool results and final answer prompt
+        start_time = time.time()
         agent_result = run_agent(
             query=query,
             conversation_history=conversation_history,
             uploaded_image_base64=uploaded_image_base64,
             max_iterations=5
         )
+        agent_time = time.time() - start_time
         
-        logger.info(f"Agent completed in {agent_result['iterations']} iterations with {len(agent_result['tool_results'])} tool calls")
+        logger.info(f"Agent completed in {agent_time:.2f}s with {agent_result['iterations']} iterations and {len(agent_result['tool_results'])} tool calls")
         
-        # Stream final response
-        def generate_sse_stream() -> Generator[str, None, None]:
-            """Generate Server-Sent Events stream with agent steps and final answer"""
-            
-            # Stream agent reasoning steps
-            yield format_sse_event('agent_start', {
-                'conversation_id': conversation_id,
-                'iterations': agent_result['iterations']
-            })
-            
-            # Stream tool calls
-            for tool_result in agent_result['tool_results']:
-                yield format_sse_event('tool_call', {
-                    'tool': tool_result['tool'],
-                    'args': tool_result['args']
-                })
+        # Check if streaming is enabled (default: true)
+        enable_streaming = os.environ.get('ENABLE_STREAMING', 'true').lower() == 'true'
+        
+        if enable_streaming:
+            # Stream final response
+            def generate_sse_stream() -> Generator[str, None, None]:
+                """Generate Server-Sent Events stream with agent steps and final answer"""
                 
-                # Stream tool result summary
-                result = tool_result.get('result', [])
-                if isinstance(result, list):
-                    yield format_sse_event('tool_result', {
+                # Stream agent reasoning steps
+                yield format_sse_event('agent_start', {
+                    'conversation_id': conversation_id,
+                    'iterations': agent_result['iterations']
+                })
+            
+                # Stream tool calls
+                for tool_result in agent_result['tool_results']:
+                    yield format_sse_event('tool_call', {
                         'tool': tool_result['tool'],
-                        'count': len(result),
-                        'results': result[:3]  # First 3 results as preview
+                        'args': tool_result['args']
                     })
                     
-                    # Stream thumbnails if available
-                    for item in result[:10]:  # Top 10 with thumbnails
-                        if item.get('thumbnail_url'):
-                            yield format_sse_event('thumbnail', {
-                                'file_id': item.get('id'),
-                                'file_name': item.get('file_name'),
-                                'thumbnail_url': item['thumbnail_url']
-                            })
-                elif isinstance(result, dict):
-                    yield format_sse_event('tool_result', {
-                        'tool': tool_result['tool'],
-                        'result': result
-                    })
+                    # Stream tool result summary
+                    result = tool_result.get('result', [])
+                    if isinstance(result, list):
+                        yield format_sse_event('tool_result', {
+                            'tool': tool_result['tool'],
+                            'count': len(result),
+                            'results': result[:3]  # First 3 results as preview
+                        })
+                        
+                        # Stream thumbnails if available
+                        for item in result[:10]:  # Top 10 with thumbnails
+                            if item.get('thumbnail_url'):
+                                yield format_sse_event('thumbnail', {
+                                    'file_id': item.get('id'),
+                                    'file_name': item.get('file_name'),
+                                    'thumbnail_url': item['thumbnail_url']
+                                })
+                    elif isinstance(result, dict):
+                        yield format_sse_event('tool_result', {
+                            'tool': tool_result['tool'],
+                            'result': result
+                        })
+                
+                # Stream final answer from Bedrock
+                yield format_sse_event('answer_start', {})
+                
+                full_response = ""
+                final_prompt = agent_result['final_answer']
+                
+                for chunk in stream_bedrock_response(final_prompt):
+                    full_response += chunk
+                    yield format_sse_event('answer_chunk', {'text': chunk})
+                
+                yield format_sse_event('answer_end', {})
+                
+                # Save assistant response to conversation
+                add_message(
+                    conversation_id,
+                    user_id,
+                    'assistant',
+                    full_response,
+                    tool_calls=agent_result['tool_results']
+                )
+                
+                # Send final event
+                yield format_sse_event('done', {
+                    'conversation_id': conversation_id,
+                    'message_count': len(conversation_history) + 2  # +2 for user query and assistant response
+                })
+        
+            # Return streaming response
+            return {
+                'statusCode': 200,
+                'headers': {
+                    **get_cors_headers(),
+                    'Content-Type': 'text/event-stream',
+                    'Cache-Control': 'no-cache',
+                    'Connection': 'keep-alive'
+                },
+                'body': ''.join(generate_sse_stream())
+            }
+        
+        else:
+            # NON-STREAMING MODE: Return complete JSON response
+            from bedrock_client import invoke_bedrock_for_reasoning
             
-            # Stream final answer from Bedrock
-            yield format_sse_event('answer_start', {})
-            
-            full_response = ""
+            # Generate complete response (non-streaming)
             final_prompt = agent_result['final_answer']
-            
-            for chunk in stream_bedrock_response(final_prompt):
-                full_response += chunk
-                yield format_sse_event('answer_chunk', {'text': chunk})
-            
-            yield format_sse_event('answer_end', {})
+            full_response = invoke_bedrock_for_reasoning(final_prompt)
             
             # Save assistant response to conversation
             add_message(
@@ -203,23 +245,18 @@ def handle_chat(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 tool_calls=agent_result['tool_results']
             )
             
-            # Send final event
-            yield format_sse_event('done', {
-                'conversation_id': conversation_id,
-                'message_count': len(conversation_history) + 2  # +2 for user query and assistant response
-            })
-        
-        # Return streaming response
-        return {
-            'statusCode': 200,
-            'headers': {
-                **get_cors_headers(),
-                'Content-Type': 'text/event-stream',
-                'Cache-Control': 'no-cache',
-                'Connection': 'keep-alive'
-            },
-            'body': ''.join(generate_sse_stream())
-        }
+            # Return complete JSON response
+            return {
+                'statusCode': 200,
+                'headers': get_cors_headers(),
+                'body': json.dumps({
+                    'conversation_id': conversation_id,
+                    'iterations': agent_result['iterations'],
+                    'tool_calls': agent_result['tool_results'],
+                    'answer': full_response,
+                    'message_count': len(conversation_history) + 2
+                }, indent=2)  # Pretty print for easier reading
+            }
         
     except Exception as e:
         logger.error(f"Error in handle_chat: {str(e)}", exc_info=True)

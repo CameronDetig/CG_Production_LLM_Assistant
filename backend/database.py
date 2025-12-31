@@ -4,6 +4,7 @@ PostgreSQL database connection and query functions.
 
 import os
 import logging
+import time
 from typing import List, Dict, Any, Optional
 import psycopg2
 from psycopg2 import pool
@@ -179,6 +180,8 @@ def search_by_text_embedding(query_embedding: List[float], limit: int = 10) -> L
     """
     conn = None
     try:
+        start_time = time.time()
+        
         conn = get_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
@@ -239,7 +242,7 @@ def search_by_text_embedding(query_embedding: List[float], limit: int = 10) -> L
         
         cursor.close()
         
-        logger.info(f"Text embedding search returned {len(metadata_list)} results")
+        logger.info(f"Text embedding search returned {len(metadata_list)} results in {time.time() - start_time:.3f}s")
         return metadata_list
         
     except Exception as e:
@@ -265,6 +268,8 @@ def search_by_image_embedding(query_text: str, limit: int = 10) -> List[Dict[str
     """
     conn = None
     try:
+        start_time = time.time()
+        
         from embeddings import generate_image_embedding_from_text
         
         # Generate CLIP embedding from text
@@ -343,7 +348,7 @@ def search_by_image_embedding(query_text: str, limit: int = 10) -> List[Dict[str
         
         cursor.close()
         
-        logger.info(f"Image embedding search returned {len(metadata_list)} results")
+        logger.info(f"Image embedding search returned {len(metadata_list)} results in {time.time() - start_time:.3f}s")
         return metadata_list
         
     except Exception as e:

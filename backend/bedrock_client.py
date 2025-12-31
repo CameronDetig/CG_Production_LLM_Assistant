@@ -27,7 +27,7 @@ def stream_bedrock_response(prompt: str) -> Generator[str, None, None]:
     Yields:
         Text chunks from the model
     """
-    model_id = os.environ.get('BEDROCK_MODEL_ID', 'meta.llama3-2-11b-instruct-v1:0')
+    model_id = os.environ.get('BEDROCK_MODEL_ID', 'us.meta.llama3-2-11b-instruct-v1:0')
     
     # Llama 3.2 request format
     request_body = {
@@ -79,7 +79,7 @@ def invoke_bedrock_for_reasoning(prompt: str) -> str:
     Returns:
         Model's response text
     """
-    model_id = os.environ.get('BEDROCK_MODEL_ID', 'meta.llama3-2-11b-instruct-v1:0')
+    model_id = os.environ.get('BEDROCK_MODEL_ID', 'us.meta.llama3-2-11b-instruct-v1:0')
     
     request_body = {
         "prompt": prompt,

@@ -43,9 +43,9 @@ The bucket should have three folders matching your file types:
 cg-production-data-thumbnails/
 ├── blend/
 │   └── {file_id}_thumb.jpg
-├── images/
+├── image/
 │   └── {file_id}_thumb.jpg
-└── videos/
+└── video/
     └── {file_id}_thumb.jpg
 ```
 
@@ -53,7 +53,7 @@ cg-production-data-thumbnails/
 
 1. Open the `cg-production-data-thumbnails` bucket
 2. Click **"Create folder"**
-3. Create three folders: `blend`, `images`, `videos`
+3. Create three folders: `blend`, `image`, `video`
 
 ### Create Folders (AWS CLI)
 
@@ -61,8 +61,8 @@ cg-production-data-thumbnails/
 # Create placeholder files to establish folder structure
 touch .placeholder
 aws s3 cp .placeholder s3://cg-production-data-thumbnails/blend/.placeholder
-aws s3 cp .placeholder s3://cg-production-data-thumbnails/images/.placeholder
-aws s3 cp .placeholder s3://cg-production-data-thumbnails/videos/.placeholder
+aws s3 cp .placeholder s3://cg-production-data-thumbnails/image/.placeholder
+aws s3 cp .placeholder s3://cg-production-data-thumbnails/video/.placeholder
 rm .placeholder
 ```
 

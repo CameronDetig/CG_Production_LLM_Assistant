@@ -5,8 +5,15 @@ Uses the same models as the metadata extractor:
 - Image: openai/clip-vit-base-patch32 (512 dimensions)
 """
 
+import os
 import logging
 from typing import List, Optional
+
+# Fix joblib multiprocessing warning in Lambda
+# Lambda's /dev/shm has restricted permissions, causing joblib to fail
+# Setting this env var forces serial mode without warnings
+os.environ['JOBLIB_MULTIPROCESSING'] = '0'
+
 import torch
 from sentence_transformers import SentenceTransformer
 from transformers import CLIPProcessor, CLIPModel
@@ -62,8 +69,13 @@ def generate_text_embedding(text: str) -> List[float]:
         384-dimensional embedding vector
     """
     try:
+        import time
+        start_time = time.time()
+        
         model = get_text_embedding_model()
         embedding = model.encode(text, convert_to_tensor=False)
+        
+        logger.info(f"Text embedding generated in {time.time() - start_time:.3f}s")
         return embedding.tolist()
     except Exception as e:
         logger.error(f"Error generating text embedding: {str(e)}", exc_info=True)
@@ -83,6 +95,9 @@ def generate_image_embedding_from_text(text: str) -> List[float]:
         512-dimensional CLIP embedding vector
     """
     try:
+        import time
+        start_time = time.time()
+        
         model, processor = get_clip_model()
         
         # Process text through CLIP
@@ -94,6 +109,7 @@ def generate_image_embedding_from_text(text: str) -> List[float]:
         # Normalize embedding
         text_features = text_features / text_features.norm(dim=-1, keepdim=True)
         
+        logger.info(f"CLIP text embedding generated in {time.time() - start_time:.3f}s")
         return text_features[0].tolist()
     except Exception as e:
         logger.error(f"Error generating CLIP text embedding: {str(e)}", exc_info=True)
@@ -139,8 +155,8 @@ def preload_models():
     try:
         logger.info("Preloading embedding models...")
         get_text_embedding_model()
-        # Optionally preload CLIP if you expect image searches
-        # get_clip_model()
+        # Preload CLIP for image searches to avoid loading during queries
+        get_clip_model()
         logger.info("Embedding models preloaded successfully")
     except Exception as e:
         logger.warning(f"Failed to preload models: {str(e)}")

@@ -84,15 +84,18 @@ aws lambda update-function-code \
 ## Step 7: Configure Lambda Settings
 
 ```bash
-# Increase memory and timeout for embedding models
+# Configure memory and timeout for LLM agent with CLIP models
 aws lambda update-function-configuration \
     --function-name $FUNCTION_NAME \
-    --memory-size 2048 \
-    --timeout 60 \
+    --memory-size 3072 \
+    --timeout 300 \
     --region $REGION
 ```
 
-> **Note**: 2048 MB memory is recommended for loading embedding models efficiently.
+> **Recommended Settings**:
+> - **Memory**: 3072 MB (provides better CPU allocation for model inference)
+> - **Timeout**: 300 seconds (5 minutes) for LLM agent workflow with multiple reasoning iterations
+> - Models are preloaded during Lambda initialization to reduce cold start impact
 
 ## Step 8: Set Environment Variables
 
@@ -197,12 +200,46 @@ aws lambda update-function-configuration \
 
 ### Out of memory errors
 ```bash
-# Increase memory to 3008 MB (max)
+# Increase memory to 3072 MB (max)
 aws lambda update-function-configuration \
     --function-name $FUNCTION_NAME \
-    --memory-size 3008 \
+    --memory-size 3072 \
     --region $REGION
 ```
+
+### DynamoDB connection timeout
+
+If Lambda is in a VPC (for RDS access), it needs a VPC endpoint to reach DynamoDB.
+
+**Quick fix** - Run the automated setup script:
+```bash
+cd backend
+bash setup_dynamodb_vpc_endpoint.sh
+```
+
+**Manual setup**:
+```bash
+# Get Lambda VPC ID
+VPC_ID=$(aws lambda get-function-configuration \
+    --function-name $FUNCTION_NAME \
+    --query 'VpcConfig.VpcId' \
+    --output text)
+
+# Get route tables
+ROUTE_TABLES=$(aws ec2 describe-route-tables \
+    --filters "Name=vpc-id,Values=$VPC_ID" \
+    --query 'RouteTables[*].RouteTableId' \
+    --output text)
+
+# Create DynamoDB VPC endpoint (FREE)
+aws ec2 create-vpc-endpoint \
+    --vpc-id $VPC_ID \
+    --service-name com.amazonaws.$REGION.dynamodb \
+    --route-table-ids $ROUTE_TABLES \
+    --region $REGION
+```
+
+See `docs/dynamodb_vpc_endpoint_setup.md` for detailed instructions.
 
 ### Cold start too slow
 - First request after deployment takes 10-15 seconds (model loading)

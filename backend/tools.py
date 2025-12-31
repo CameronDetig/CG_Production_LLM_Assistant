@@ -4,6 +4,7 @@ Wraps database and utility functions as LangGraph tools.
 """
 
 import logging
+import time
 from typing import List, Dict, Any
 from langchain.tools import tool
 from database import (
@@ -40,13 +41,19 @@ def search_by_metadata_embedding(query: str, limit: int = 10) -> List[Dict[str, 
         - "Files related to autumn scenes"
     """
     try:
+        start_time = time.time()
+        
         # Generate embedding from query
+        embed_start = time.time()
         query_embedding = generate_text_embedding(query)
+        logger.info(f"Text embedding generated in {time.time() - embed_start:.2f}s")
         
         # Search database
+        db_start = time.time()
         results = search_by_text_embedding(query_embedding, limit)
+        logger.info(f"Database search completed in {time.time() - db_start:.2f}s")
         
-        logger.info(f"search_by_metadata_embedding returned {len(results)} results for: {query}")
+        logger.info(f"search_by_metadata_embedding returned {len(results)} results in {time.time() - start_time:.2f}s for: {query}")
         return results
         
     except Exception as e:
@@ -74,9 +81,10 @@ def search_by_visual_embedding(description: str, limit: int = 10) -> List[Dict[s
         - "Videos with characters running"
     """
     try:
+        start_time = time.time()
         results = search_by_image_embedding(description, limit)
         
-        logger.info(f"search_by_visual_embedding returned {len(results)} results for: {description}")
+        logger.info(f"search_by_visual_embedding returned {len(results)} results in {time.time() - start_time:.2f}s for: {description}")
         return results
         
     except Exception as e:

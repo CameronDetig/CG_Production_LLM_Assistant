@@ -5,6 +5,7 @@ Implements agentic workflow for intelligent tool selection and reasoning.
 
 import logging
 import json
+import time
 from typing import List, Dict, Any, Optional, TypedDict, Annotated
 import operator
 from langgraph.graph import StateGraph, END
@@ -69,18 +70,23 @@ def reasoning_node(state: AgentState) -> AgentState:
     
     Uses custom ReAct prompting for Llama models.
     """
+    start_time = time.time()
     logger.info(f"Reasoning node - Iteration {state['iteration']}")
     
     # Build ReAct prompt for Llama
+    prompt_start = time.time()
     prompt = build_react_prompt(
         query=state['user_query'],
         conversation_history=state.get('conversation_history', []),
         tool_results=state.get('tool_results', []),
         iteration=state['iteration']
     )
+    logger.info(f"Prompt built in {time.time() - prompt_start:.2f}s")
     
     # Get LLM response with tool decisions
+    bedrock_start = time.time()
     response = invoke_bedrock_for_reasoning(prompt)
+    logger.info(f"Bedrock reasoning call took {time.time() - bedrock_start:.2f}s")
     
     # Parse tool calls from response
     tool_calls = parse_tool_calls_from_response(response)
@@ -100,6 +106,7 @@ def reasoning_node(state: AgentState) -> AgentState:
             'result': None  # Will be filled by tool_execution_node
         })
     
+    logger.info(f"Reasoning node completed in {time.time() - start_time:.2f}s")
     return state
 
 
@@ -107,6 +114,7 @@ def tool_execution_node(state: AgentState) -> AgentState:
     """
     Tool execution node: Execute the tools selected by the reasoning node.
     """
+    start_time = time.time()
     logger.info(f"Tool execution node - Executing {len(state['tool_results'])} tools")
     
     # Execute tools that don't have results yet
@@ -119,9 +127,10 @@ def tool_execution_node(state: AgentState) -> AgentState:
             tool_func = get_tool_by_name(tool_name)
             if tool_func:
                 try:
+                    tool_start = time.time()
                     result = tool_func.invoke(tool_args)
                     tool_result['result'] = result
-                    logger.info(f"Executed tool {tool_name} with {len(result) if isinstance(result, list) else 1} results")
+                    logger.info(f"Executed tool {tool_name} in {time.time() - tool_start:.2f}s with {len(result) if isinstance(result, list) else 1} results")
                 except Exception as e:
                     logger.error(f"Error executing tool {tool_name}: {str(e)}", exc_info=True)
                     tool_result['result'] = {"error": str(e)}
@@ -132,6 +141,7 @@ def tool_execution_node(state: AgentState) -> AgentState:
     # Increment iteration
     state['iteration'] += 1
     
+    logger.info(f"Tool execution node completed in {time.time() - start_time:.2f}s")
     return state
 
 
@@ -167,13 +177,20 @@ def should_continue(state: AgentState) -> str:
         logger.info(f"Max iterations ({state['max_iterations']}) reached")
         return "finish"
     
-    # Check if we have sufficient information
-    # Simple heuristic: if we have tool results, we can generate an answer
+    # Early termination: if we have tool results with data, finish
     if state.get('tool_results') and len(state['tool_results']) > 0:
         # Check if all tools have results
         all_have_results = all(tr.get('result') is not None for tr in state['tool_results'])
         if all_have_results:
-            return "finish"
+            # Check if any tool returned actual data (not just errors)
+            has_data = any(
+                (isinstance(tr.get('result'), list) and len(tr['result']) > 0) or
+                (isinstance(tr.get('result'), dict) and not tr['result'].get('error'))
+                for tr in state['tool_results']
+            )
+            if has_data:
+                logger.info("Tool results contain data, finishing early")
+                return "finish"
     
     # Continue reasoning if no tool results yet
     return "continue" if state['iteration'] < state['max_iterations'] else "finish"
