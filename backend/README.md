@@ -100,9 +100,29 @@ BEDROCK_MODEL_ID=us.meta.llama3-2-11b-instruct-v1:0
 
 ### Lambda Settings
 
-- **Memory**: 2048 MB (for embedding models)
-- **Timeout**: 60 seconds
+- **Memory**: 3072 MB (for embedding models)
+- **Timeout**: 120 seconds
 - **Runtime**: Container (Python 3.11 base)
+- **Network**: No VPC (public internet access)
+
+---
+
+## Network Architecture
+
+### Current Setup: Lambda Outside VPC ✅
+
+**Benefits**:
+- ✅ Full internet access (AWS services + external APIs)
+- ✅ No additional networking costs ($0/month)
+- ✅ Simpler configuration
+- ✅ Faster cold starts
+
+**Database Access**:
+- RDS is publicly accessible
+- Security Group restricts access
+- SSL/TLS encryption enabled
+
+**See**: [docs/vpc_connectivity_guide.md](docs/vpc_connectivity_guide.md) for VPC options and cost comparison.
 
 ---
 

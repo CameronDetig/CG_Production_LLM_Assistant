@@ -1,6 +1,7 @@
 """
 Gradio frontend for CG Production LLM Assistant.
-Features: Authentication, conversation management, image upload, thumbnail display.
+Optimized for Hugging Face Spaces deployment with auto-login to demo account.
+Features: Backend authentication, conversation management, image upload, thumbnail display.
 """
 
 import gradio as gr
@@ -8,33 +9,28 @@ import requests
 import os
 import json
 import base64
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 from typing import Generator, List, Tuple, Optional, Dict, Any
 from PIL import Image
 from io import BytesIO
-import boto3
-from botocore.exceptions import ClientError
 
-# Configuration
+# Configuration - Use environment variables or HF Spaces secrets
 API_ENDPOINT = os.getenv("API_ENDPOINT", "https://your-api-gateway-url.amazonaws.com/prod")
-COGNITO_CLIENT_ID = os.getenv("COGNITO_CLIENT_ID", "your-client-id")
-COGNITO_REGION = os.getenv("COGNITO_REGION", "us-east-1")
-
-# Demo account credentials
-DEMO_EMAIL = "demo@cgassistant.com"
-DEMO_PASSWORD = "DemoPass10!"
+DEMO_EMAIL = os.getenv("DEMO_EMAIL", "demo@cgassistant.com")
+DEMO_PASSWORD = os.getenv("DEMO_PASSWORD", "DemoPass10!")
 
 # Global state
 current_token = None
 current_user_id = None
 current_conversation_id = None
 
-# Cognito client
-cognito_client = boto3.client('cognito-idp', region_name=COGNITO_REGION)
 
-
-def authenticate(email: str, password: str) -> Tuple[Optional[str], str]:
+def authenticate_via_backend(email: str, password: str) -> Tuple[Optional[str], str]:
     """
-    Authenticate user with Cognito.
+    Authenticate user via backend /auth endpoint.
     
     Returns:
         (id_token, message)
@@ -42,33 +38,34 @@ def authenticate(email: str, password: str) -> Tuple[Optional[str], str]:
     global current_token, current_user_id
     
     try:
-        response = cognito_client.initiate_auth(
-            ClientId=COGNITO_CLIENT_ID,
-            AuthFlow='USER_PASSWORD_AUTH',
-            AuthParameters={
-                'USERNAME': email,
-                'PASSWORD': password
-            }
+        response = requests.post(
+            f"{API_ENDPOINT}/auth",
+            json={
+                'email': email,
+                'password': password
+            },
+            timeout=120  # Increased to handle Lambda cold starts
         )
         
-        current_token = response['AuthenticationResult']['IdToken']
-        current_user_id = email
-        
-        return current_token, f"✅ Logged in as {email}"
-        
-    except ClientError as e:
-        error_code = e.response['Error']['Code']
-        if error_code == 'NotAuthorizedException':
+        if response.status_code == 200:
+            data = response.json()
+            current_token = data['id_token']
+            current_user_id = data.get('user_id', email)
+            
+            return current_token, f"✅ Logged in as {current_user_id}"
+        elif response.status_code == 401:
             return None, "❌ Invalid email or password"
         else:
-            return None, f"❌ Authentication error: {error_code}"
+            return None, f"❌ Authentication error: {response.status_code}"
+            
     except Exception as e:
         return None, f"❌ Error: {str(e)}"
 
 
 def demo_login() -> Tuple[Optional[str], str]:
     """Quick login with demo account."""
-    return authenticate(DEMO_EMAIL, DEMO_PASSWORD)
+    token, message = authenticate_via_backend(DEMO_EMAIL, DEMO_PASSWORD)
+    return token, message
 
 
 def logout() -> str:
@@ -111,12 +108,12 @@ def load_conversations() -> List[Tuple[str, str]]:
         return []
 
 
-def select_conversation(conversation_id: str) -> List[Tuple[str, str]]:
+def select_conversation(conversation_id: str) -> List[Dict[str, str]]:
     """
     Load messages from a conversation.
     
     Returns:
-        Chat history in Gradio format
+        Chat history in Gradio 6.0 format (list of message dicts)
     """
     global current_conversation_id
     
@@ -137,13 +134,13 @@ def select_conversation(conversation_id: str) -> List[Tuple[str, str]]:
             conversation = data.get('conversation', {})
             messages = conversation.get('messages', [])
             
-            # Convert to Gradio chat format
+            # Convert to Gradio 6.0 chat format (list of dicts with role and content)
             history = []
-            for i in range(0, len(messages), 2):
-                if i + 1 < len(messages):
-                    user_msg = messages[i]['content']
-                    assistant_msg = messages[i + 1]['content']
-                    history.append((user_msg, assistant_msg))
+            for msg in messages:
+                history.append({
+                    'role': msg['role'],
+                    'content': msg['content']
+                })
             
             return history
         else:
@@ -154,7 +151,7 @@ def select_conversation(conversation_id: str) -> List[Tuple[str, str]]:
         return []
 
 
-def new_conversation() -> Tuple[List, str]:
+def new_conversation() -> Tuple[List[Dict[str, str]], str]:
     """
     Start a new conversation.
     
@@ -209,15 +206,16 @@ def resize_image_to_base64(image: Image.Image) -> str:
     return base64.b64encode(image_bytes).decode('utf-8')
 
 
-def parse_sse_stream(response) -> Generator[Tuple[str, List[str]], None, None]:
+def parse_sse_stream(response) -> Generator[Tuple[str, List[str], Optional[str]], None, None]:
     """
     Parse Server-Sent Events stream from backend.
     
     Yields:
-        (accumulated_text, thumbnail_urls)
+        (accumulated_text, thumbnail_urls, conversation_id)
     """
     accumulated_text = ""
     thumbnail_urls = []
+    conversation_id = None
     current_event = None
     
     for line in response.iter_lines():
@@ -233,30 +231,33 @@ def parse_sse_stream(response) -> Generator[Tuple[str, List[str]], None, None]:
                     if current_event == 'tool_call':
                         tool_name = data.get('tool', 'unknown')
                         accumulated_text += f"\n\n🔧 **Using tool:** {tool_name}\n"
-                        yield accumulated_text, thumbnail_urls
+                        yield accumulated_text, thumbnail_urls, conversation_id
                     
                     elif current_event == 'tool_result':
                         count = data.get('count', 0)
                         if count > 0:
                             accumulated_text += f"Found {count} results\n"
-                            yield accumulated_text, thumbnail_urls
+                            yield accumulated_text, thumbnail_urls, conversation_id
                     
                     elif current_event == 'thumbnail':
                         thumbnail_url = data.get('thumbnail_url')
                         if thumbnail_url:
                             thumbnail_urls.append(thumbnail_url)
-                            yield accumulated_text, thumbnail_urls
+                            yield accumulated_text, thumbnail_urls, conversation_id
                     
                     elif current_event == 'answer_start':
                         accumulated_text += "\n\n**Answer:**\n"
-                        yield accumulated_text, thumbnail_urls
+                        yield accumulated_text, thumbnail_urls, conversation_id
                     
                     elif current_event == 'answer_chunk':
                         text = data.get('text', '')
                         accumulated_text += text
-                        yield accumulated_text, thumbnail_urls
+                        yield accumulated_text, thumbnail_urls, conversation_id
                     
                     elif current_event == 'done':
+                        # Capture conversation ID from done event
+                        conversation_id = data.get('conversation_id')
+                        yield accumulated_text, thumbnail_urls, conversation_id
                         break
                         
                 except json.JSONDecodeError:
@@ -265,15 +266,15 @@ def parse_sse_stream(response) -> Generator[Tuple[str, List[str]], None, None]:
 
 def chat_with_backend(
     message: str,
-    history: List[Tuple[str, str]],
+    history: List[Dict[str, str]],
     uploaded_image: Optional[Image.Image] = None
-) -> Generator[Tuple[List[Tuple[str, str]], List[str]], None, None]:
+) -> Generator[Tuple[List[Dict[str, str]], List[str]], None, None]:
     """
     Send message to backend and stream response.
     
     Args:
         message: User's message
-        history: Chat history
+        history: Chat history (Gradio 6.0 format)
         uploaded_image: Optional uploaded image for search
         
     Yields:
@@ -315,7 +316,8 @@ def chat_with_backend(
         
         if response.status_code != 200:
             error_msg = f"❌ Error: API returned status {response.status_code}"
-            history.append((message, error_msg))
+            history.append({'role': 'user', 'content': message})
+            history.append({'role': 'assistant', 'content': error_msg})
             yield history, []
             return
         
@@ -323,29 +325,34 @@ def chat_with_backend(
         accumulated_response = ""
         thumbnail_urls = []
         
-        for text, thumbs in parse_sse_stream(response):
+        # Add user message to history
+        history.append({'role': 'user', 'content': message})
+        # Add placeholder for assistant response
+        history.append({'role': 'assistant', 'content': ''})
+        
+        for text, thumbs, conv_id in parse_sse_stream(response):
             accumulated_response = text
             thumbnail_urls = thumbs
             
-            # Update history with current response
-            if history and history[-1][0] == message:
-                history[-1] = (message, accumulated_response)
-            else:
-                history.append((message, accumulated_response))
+            # Update conversation ID if returned
+            if conv_id and not current_conversation_id:
+                current_conversation_id = conv_id
+            
+            # Update the last message (assistant response)
+            history[-1] = {'role': 'assistant', 'content': accumulated_response}
             
             yield history, thumbnail_urls
         
-        # Update conversation ID if new conversation
-        # (Would be returned in 'done' event, but we'll handle it in next iteration)
-        
     except Exception as e:
         error_msg = f"❌ Error: {str(e)}"
-        history.append((message, error_msg))
+        if not any(msg.get('role') == 'user' and msg.get('content') == message for msg in history):
+            history.append({'role': 'user', 'content': message})
+        history.append({'role': 'assistant', 'content': error_msg})
         yield history, []
 
 
 # Build Gradio UI
-with gr.Blocks(title="CG Production Assistant", theme=gr.themes.Soft()) as demo:
+with gr.Blocks(title="CG Production Assistant") as demo:
     gr.Markdown("# 🎬 CG Production LLM Assistant")
     gr.Markdown("AI-powered search for your CG production assets with conversation memory")
     
@@ -354,16 +361,22 @@ with gr.Blocks(title="CG Production Assistant", theme=gr.themes.Soft()) as demo:
         with gr.Column(scale=1):
             gr.Markdown("### 🔐 Authentication")
             
-            with gr.Group():
-                email_input = gr.Textbox(label="Email", placeholder="demo@cgassistant.com")
-                password_input = gr.Textbox(label="Password", type="password", placeholder="DemoPass10!")
-                
-                with gr.Row():
-                    login_btn = gr.Button("Login", variant="primary")
-                    demo_login_btn = gr.Button("🎭 Demo Login")
-                
-                logout_btn = gr.Button("Logout")
-                auth_status = gr.Textbox(label="Status", interactive=False)
+            # Collapsible authentication section
+            with gr.Accordion("Login Options", open=False):
+                with gr.Group():
+                    email_input = gr.Textbox(label="Email", placeholder="your-email@example.com")
+                    password_input = gr.Textbox(label="Password", type="password")
+                    
+                    with gr.Row():
+                        login_btn = gr.Button("Login", variant="primary")
+                    
+                    logout_btn = gr.Button("Logout")
+            
+            auth_status = gr.Textbox(
+                label="Status", 
+                interactive=False,
+                value="✅ Logged in as demo@cgassistant.com (auto-login)"
+            )
             
             gr.Markdown("### 💬 Conversations")
             
@@ -380,8 +393,7 @@ with gr.Blocks(title="CG Production Assistant", theme=gr.themes.Soft()) as demo:
         with gr.Column(scale=3):
             chatbot = gr.Chatbot(
                 label="Chat",
-                height=500,
-                show_copy_button=True
+                height=500
             )
             
             with gr.Row():
@@ -410,13 +422,8 @@ with gr.Blocks(title="CG Production Assistant", theme=gr.themes.Soft()) as demo:
     
     # Event handlers
     login_btn.click(
-        fn=authenticate,
+        fn=authenticate_via_backend,
         inputs=[email_input, password_input],
-        outputs=[gr.State(), auth_status]
-    )
-    
-    demo_login_btn.click(
-        fn=demo_login,
         outputs=[gr.State(), auth_status]
     )
     
@@ -471,8 +478,11 @@ with gr.Blocks(title="CG Production Assistant", theme=gr.themes.Soft()) as demo:
         outputs=image_upload
     )
     
-    # Load conversations on startup
+    # Auto-login on startup and load conversations
     demo.load(
+        fn=demo_login,
+        outputs=[gr.State(), auth_status]
+    ).then(
         fn=load_conversations,
         outputs=conversations_list
     )
@@ -481,5 +491,6 @@ if __name__ == "__main__":
     demo.launch(
         server_name="0.0.0.0",
         server_port=7860,
-        share=False
+        share=False,
+        theme=gr.themes.Soft()
     )

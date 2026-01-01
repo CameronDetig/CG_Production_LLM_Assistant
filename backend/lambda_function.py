@@ -60,6 +60,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     
     Supports multiple endpoints:
     - POST /chat - Main chat endpoint with agent
+    - POST /auth - Authenticate user with Cognito
     - GET /conversations - List user's conversations
     - GET /conversations/{id} - Get specific conversation
     - DELETE /conversations/{id} - Delete conversation
@@ -72,13 +73,27 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         API Gateway response
     """
     try:
-        # Extract HTTP method and path
-        http_method = event.get('httpMethod', 'POST')
-        path = event.get('path', '/chat')
+        # Lambda Function URLs and API Gateway have different event structures
+        # Lambda Function URL: event['requestContext']['http']['method'], event['rawPath']
+        # API Gateway: event['httpMethod'], event['path']
+        
+        # Detect event type and extract method and path
+        if 'requestContext' in event and 'http' in event.get('requestContext', {}):
+            # Lambda Function URL format
+            http_method = event['requestContext']['http']['method']
+            path = event.get('rawPath', '/')
+            logger.info(f"Lambda Function URL request: {http_method} {path}")
+        else:
+            # API Gateway format
+            http_method = event.get('httpMethod', 'POST')
+            path = event.get('path', '/chat')
+            logger.info(f"API Gateway request: {http_method} {path}")
         
         # Route to appropriate handler
         if path == '/chat' and http_method == 'POST':
             return handle_chat(event, context)
+        elif path == '/auth' and http_method == 'POST':
+            return handle_auth(event, context)
         elif path == '/conversations' and http_method == 'GET':
             return handle_list_conversations(event, context)
         elif path.startswith('/conversations/') and http_method == 'GET':
@@ -86,10 +101,11 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         elif path.startswith('/conversations/') and http_method == 'DELETE':
             return handle_delete_conversation(event, context)
         else:
+            logger.warning(f"Endpoint not found: {http_method} {path}")
             return {
                 'statusCode': 404,
                 'headers': get_cors_headers(),
-                'body': json.dumps({'error': 'Endpoint not found'})
+                'body': json.dumps({'error': f'Endpoint not found: {http_method} {path}'})
             }
             
     except Exception as e:
@@ -97,7 +113,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         return {
             'statusCode': 500,
             'headers': get_cors_headers(),
-            'body': json.dumps({'error': 'Internal server error'})
+            'body': json.dumps({'error': 'Internal server error', 'details': str(e)})
         }
 
 
@@ -366,6 +382,101 @@ def handle_get_conversation(event: Dict[str, Any], context: Any) -> Dict[str, An
             'statusCode': 500,
             'headers': get_cors_headers(),
             'body': json.dumps({'error': str(e)})
+        }
+
+
+def handle_auth(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """
+    Handle POST /auth - authenticate user with Cognito.
+    This endpoint allows frontend to authenticate without boto3 client.
+    """
+    try:
+        # Log the entire event for debugging
+        logger.info(f"Auth event keys: {list(event.keys())}")
+        
+        # Parse request body - handle multiple formats
+        body_str = event.get('body', '{}')
+        
+        logger.info(f"Body type: {type(body_str)}, isBase64: {event.get('isBase64Encoded', False)}")
+        logger.info(f"Body preview: {str(body_str)[:100]}")
+        
+        # Handle base64 encoding
+        if event.get('isBase64Encoded', False) and isinstance(body_str, str):
+            import base64
+            try:
+                body_str = base64.b64decode(body_str).decode('utf-8')
+                logger.info(f"Decoded body: {body_str}")
+            except Exception as e:
+                logger.error(f"Base64 decode error: {e}")
+        
+        # Parse JSON with error handling
+        try:
+            if isinstance(body_str, str):
+                # Strip any whitespace
+                body_str = body_str.strip()
+                logger.info(f"Parsing JSON: {body_str}")
+                body = json.loads(body_str)
+            elif isinstance(body_str, dict):
+                body = body_str
+            else:
+                logger.error(f"Unexpected body type: {type(body_str)}")
+                return {
+                    'statusCode': 400,
+                    'headers': get_cors_headers(),
+                    'body': json.dumps({'error': 'Invalid request body format'})
+                }
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error: {e}, body was: {repr(body_str)}")
+            return {
+                'statusCode': 400,
+                'headers': get_cors_headers(),
+                'body': json.dumps({'error': f'Invalid JSON: {str(e)}'})
+            }
+        
+        # Extract credentials
+        email = body.get('email')
+        password = body.get('password')
+        
+        if not email or not password:
+            logger.warning(f"Missing credentials in body: {body}")
+            return {
+                'statusCode': 400,
+                'headers': get_cors_headers(),
+                'body': json.dumps({'error': 'Email and password are required'})
+            }
+        
+        logger.info(f"Authentication attempt for user: {email}")
+        
+        # Authenticate with Cognito
+        from auth import authenticate_user
+        tokens = authenticate_user(email, password)
+        
+        if tokens:
+            logger.info(f"Authentication successful for user: {email}")
+            return {
+                'statusCode': 200,
+                'headers': get_cors_headers(),
+                'body': json.dumps({
+                    'id_token': tokens['id_token'],
+                    'access_token': tokens['access_token'],
+                    'refresh_token': tokens['refresh_token'],
+                    'user_id': email
+                })
+            }
+        else:
+            logger.warning(f"Authentication failed for user: {email}")
+            return {
+                'statusCode': 401,
+                'headers': get_cors_headers(),
+                'body': json.dumps({'error': 'Invalid email or password'})
+            }
+        
+    except Exception as e:
+        logger.error(f"Error in handle_auth: {str(e)}", exc_info=True)
+        return {
+            'statusCode': 500,
+            'headers': get_cors_headers(),
+            'body': json.dumps({'error': 'Authentication service error'})
         }
 
 

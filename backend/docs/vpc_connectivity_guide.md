@@ -1,60 +1,128 @@
-# VPC Connectivity Guide: Bedrock & External APIs
+# Lambda Connectivity Guide
 
-This guide explains how to connect your private Lambda function to AWS Bedrock and external APIs (like Groq) using VPC Endpoints and NAT Gateways.
+This guide explains the network architecture options for your Lambda function.
 
-## 1. Connecting to AWS Bedrock (VPC Endpoint)
+## Current Architecture: Lambda Outside VPC (Recommended)
 
-Since your Lambda is in a private VPC without internet access, you must use a **VPC Endpoint** to reach AWS Bedrock securely.
+**Status**: ✅ **Currently Deployed**
 
-### Quick Facts
-- **Service Name**: `com.amazonaws.us-east-1.bedrock-runtime`
-- **Cost**: ~$7/month per Availability Zone.
-- **Type**: Interface Endpoint (requires Security Group).
+Your Lambda function is deployed **outside of a VPC**, which provides:
 
-### Step-by-Step Setup (AWS Console)
-1. Go to **[VPC Console > Endpoints](https://console.aws.amazon.com/vpc/home?region=us-east-1#Endpoints:)**.
-2. Click **Create endpoint**.
-3. **Name**: `bedrock-runtime-endpoint`.
-4. **Service category**: Select **AWS services**.
-5. **Services**: Search for and select `com.amazonaws.us-east-1.bedrock-runtime`.
-   > ⚠️ **Important**: Select `bedrock-runtime`, NOT just `bedrock`. The runtime service is used for invoking models.
-6. **VPC**: Select your Lambda function's VPC.
-7. **Subnets**: Select the subnets where your Lambda is running.
-8. **Security Groups**:
-   - Select the **same Security Group** that your Lambda uses.
-   - **Crucial Configuration**: You must ensure this Security Group allows **Inbound traffic on Port 443** from itself.
-   - **How to configure Inbound Rules**:
-     - Type: **HTTPS**
-     - Port: **443**
-     - Source: **Custom** -> Start typing the name of the Security Group itself (e.g., `sg-0123...`) and select it from the dropdown. This creates a "self-referencing" rule.
-9. Click **Create endpoint**.
-10. Wait ~60 seconds for status to change to **Available**.
+### Advantages
+- ✅ **Full Internet Access**: Can connect to AWS services (Bedrock, Cognito, DynamoDB, S3) and external APIs
+- ✅ **No Additional Costs**: No VPC endpoints or NAT Gateway fees
+- ✅ **Simpler Setup**: No VPC configuration needed
+- ✅ **Faster Cold Starts**: No ENI (Elastic Network Interface) creation delay
+
+### Database Access
+- RDS database is configured as **publicly accessible**
+- Security Group restricts access to specific IPs/ranges
+- Database credentials stored in Lambda environment variables
+- SSL/TLS encryption for database connections
+
+### Security Considerations
+- Lambda uses IAM roles for AWS service access
+- Database password is strong and rotated regularly
+- Security Group limits database access
+- Consider using AWS Secrets Manager for credentials in production
 
 ---
 
-## 2. Connecting to External APIs (Groq, OpenAI, HuggingFace)
+## Alternative: Lambda in VPC (Not Recommended for This Use Case)
 
-If you need to connect to services *outside* of AWS (like Groq, OpenAI API, or downloading models dynamically from HuggingFace), a VPC Endpoint is not enough. You need internet access.
+If you need Lambda inside a VPC (e.g., for private database access), you have two options:
 
-### The Solution: NAT Gateway
-Verified solution for enabling outbound internet access for private subnets.
+### Option 1: VPC with NAT Gateway
+**Cost**: ~$32/month + data transfer fees
 
-- **Cost**: ~$32/month + data processing fees.
-- **Function**: Routes traffic from your private subnet to the public internet securely.
+**Provides**:
+- Access to private RDS database
+- Internet access for AWS services and external APIs
 
-### Setup Overview
-1. **Create a Public Subnet** (if you don't have one).
-2. **Create a NAT Gateway** in the public subnet.
-3. **Allocate an Elastic IP** for the NAT Gateway.
-4. **Update Route Table**:
-   - Go to the Route Table associated with your **Lambda's Private Subnet**.
-   - Add a route: `0.0.0.0/0` -> Target: `nat-gw-xxxx`.
+**Setup**:
+1. Create NAT Gateway in public subnet
+2. Update private subnet route table to route `0.0.0.0/0` through NAT Gateway
+3. Configure Lambda to use private subnets
 
-### Comparison: VPC Endpoint vs. NAT Gateway
+### Option 2: VPC with VPC Endpoints
+**Cost**: ~$7-10/month per endpoint
 
-| Feature | VPC Endpoint (Current Setup) | NAT Gateway |
-| :--- | :--- | :--- |
-| **Connectivity** | AWS Services (Bedrock, S3, DynamoDB) | **Any Internet Address** (Groq, OpenAI, Google) |
-| **Cost** | ~$7/month per endpoint | ~$32/month |
-| **Security** | Private (Internal AWS Network) | Private Outbound (Traffic leaves AWS) |
-| **Use Case** | Calling Bedrock LLMs | Calling Groq/OpenAI APIs |
+**Provides**:
+- Access to private RDS database
+- Access to specific AWS services (Bedrock, DynamoDB, S3, Cognito)
+- **No** access to external internet
+
+**Required Endpoints**:
+- `com.amazonaws.us-east-1.bedrock-runtime` - For Bedrock LLM calls
+- `com.amazonaws.us-east-1.dynamodb` - For DynamoDB conversations
+- `com.amazonaws.us-east-1.s3` - For S3 thumbnail storage
+- `com.amazonaws.us-east-1.cognito-idp` - For Cognito authentication
+
+**Setup**:
+1. Create VPC endpoints for each service
+2. Configure Security Groups to allow HTTPS (port 443)
+3. Update Lambda to use VPC subnets
+
+---
+
+## Cost Comparison
+
+| Architecture | Monthly Cost | Internet Access | AWS Services | Private DB |
+|-------------|--------------|-----------------|--------------|------------|
+| **No VPC (Current)** | **$0** | ✅ Yes | ✅ Yes | ❌ No (DB must be public) |
+| VPC + NAT Gateway | ~$32 | ✅ Yes | ✅ Yes | ✅ Yes |
+| VPC + Endpoints | ~$28-40 | ❌ No | ✅ Yes (specific) | ✅ Yes |
+
+---
+
+## When to Use Each Option
+
+### Use No VPC (Current) When:
+- Database can be publicly accessible with proper security
+- Cost is a primary concern
+- Simplicity is preferred
+- You need both AWS services AND external API access
+
+### Use VPC + NAT Gateway When:
+- Database must be private
+- You need external internet access (e.g., calling Groq, OpenAI)
+- Budget allows ~$32/month
+
+### Use VPC + Endpoints When:
+- Database must be private
+- You only need AWS services (no external APIs)
+- You want to minimize costs compared to NAT Gateway
+
+---
+
+## Switching Architectures
+
+### To Move Lambda INTO VPC:
+```bash
+aws lambda update-function-configuration \
+    --function-name cg-production-chatbot \
+    --vpc-config SubnetIds=subnet-xxx,subnet-yyy,SecurityGroupIds=sg-zzz \
+    --region us-east-1
+```
+
+### To Remove Lambda FROM VPC:
+```bash
+aws lambda update-function-configuration \
+    --function-name cg-production-chatbot \
+    --vpc-config SubnetIds=[],SecurityGroupIds=[] \
+    --region us-east-1
+```
+
+---
+
+## Security Best Practices
+
+Regardless of architecture:
+
+1. **Use IAM Roles**: Lambda should use IAM roles, not access keys
+2. **Rotate Credentials**: Regularly rotate database passwords
+3. **Use Secrets Manager**: Store sensitive credentials in AWS Secrets Manager
+4. **Enable CloudWatch Logs**: Monitor Lambda execution and errors
+5. **Restrict Security Groups**: Only allow necessary inbound/outbound traffic
+6. **Use HTTPS**: Always use SSL/TLS for database and API connections
+7. **Enable VPC Flow Logs**: If using VPC, enable flow logs for monitoring
