@@ -54,6 +54,27 @@ def make_json_serializable(obj: Any) -> Any:
     return obj
 
 
+
+def sanitize_for_json(obj: Any) -> Any:
+    """
+    Recursively convert objects to JSON-serializable format.
+    - Decimal -> float/int
+    - datetime -> string
+    """
+    from datetime import datetime, date
+    from decimal import Decimal
+    
+    if isinstance(obj, Decimal):
+        return int(obj) if obj % 1 == 0 else float(obj)
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, dict):
+        return {k: sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [sanitize_for_json(i) for i in obj]
+    return obj
+
+
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Main Lambda handler for chatbot requests.
@@ -208,7 +229,7 @@ def handle_chat(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                         yield format_sse_event('tool_result', {
                             'tool': tool_result['tool'],
                             'count': len(result),
-                            'results': result[:3]  # First 3 results as preview
+                            'results': sanitize_for_json(result[:3])  # First 3 results as preview
                         })
                         
                         # Stream thumbnails if available
@@ -222,7 +243,7 @@ def handle_chat(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                     elif isinstance(result, dict):
                         yield format_sse_event('tool_result', {
                             'tool': tool_result['tool'],
-                            'result': result
+                            'result': sanitize_for_json(result)
                         })
                 
                 # Stream final answer from Bedrock
@@ -238,12 +259,14 @@ def handle_chat(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 yield format_sse_event('answer_end', {})
                 
                 # Save assistant response to conversation
+                # Make sure to use DynamoDB format (Decimals)
+                dynamo_tool_results = make_json_serializable(agent_result['tool_results'])
                 add_message(
                     conversation_id,
                     user_id,
                     'assistant',
                     full_response,
-                    tool_calls=agent_result['tool_results']
+                    tool_calls=dynamo_tool_results
                 )
                 
                 # Send final event
@@ -272,17 +295,19 @@ def handle_chat(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             final_prompt = agent_result['final_answer']
             full_response = invoke_bedrock_for_reasoning(final_prompt)
             
-            # Save assistant response to conversation
-            # Ensure tool_results are JSON serializable (convert datetime to string)
-            sanitized_tool_results = make_json_serializable(agent_result['tool_results'])
+            # Save assistant response to conversation (DynamoDB format)
+            dynamo_tool_results = make_json_serializable(agent_result['tool_results'])
             
             add_message(
                 conversation_id,
                 user_id,
                 'assistant',
                 full_response,
-                tool_calls=sanitized_tool_results
+                tool_calls=dynamo_tool_results
             )
+            
+            # Prepare JSON response (JSON format)
+            json_tool_results = sanitize_for_json(agent_result['tool_results'])
             
             # Return complete JSON response
             return {
@@ -291,8 +316,9 @@ def handle_chat(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 'body': json.dumps({
                     'conversation_id': conversation_id,
                     'iterations': agent_result['iterations'],
-                    'tool_calls': agent_result['tool_results'],
+                    'tool_calls': json_tool_results,
                     'answer': full_response,
+
                     'message_count': len(conversation_history) + 2
                 }, indent=2)  # Pretty print for easier reading
             }

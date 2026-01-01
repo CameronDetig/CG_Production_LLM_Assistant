@@ -19,6 +19,7 @@ logger = logging.getLogger()
 COGNITO_REGION = os.environ.get('COGNITO_REGION', 'us-east-1')
 COGNITO_USER_POOL_ID = os.environ.get('COGNITO_USER_POOL_ID')
 COGNITO_CLIENT_ID = os.environ.get('COGNITO_CLIENT_ID')
+COGNITO_CLIENT_SECRET = os.environ.get('COGNITO_CLIENT_SECRET')
 
 # Cognito URLs
 COGNITO_ISSUER = f'https://cognito-idp.{COGNITO_REGION}.amazonaws.com/{COGNITO_USER_POOL_ID}'
@@ -142,6 +143,34 @@ def is_demo_user(user_id: str) -> bool:
     return user_id == 'demo@cgassistant.com'
 
 
+def compute_secret_hash(username: str) -> str:
+    """
+    Compute SECRET_HASH for Cognito authentication.
+    Required when the app client has a client secret.
+    
+    Args:
+        username: Username (email) for authentication
+        
+    Returns:
+        Base64-encoded HMAC-SHA256 hash
+    """
+    import hmac
+    import hashlib
+    import base64
+    
+    if not COGNITO_CLIENT_SECRET:
+        raise ValueError("COGNITO_CLIENT_SECRET not configured")
+    
+    message = username + COGNITO_CLIENT_ID
+    dig = hmac.new(
+        COGNITO_CLIENT_SECRET.encode('utf-8'),
+        msg=message.encode('utf-8'),
+        digestmod=hashlib.sha256
+    ).digest()
+    
+    return base64.b64encode(dig).decode()
+
+
 def authenticate_user(email: str, password: str) -> Optional[Dict[str, str]]:
     """
     Authenticate user with Cognito and return tokens.
@@ -162,13 +191,20 @@ def authenticate_user(email: str, password: str) -> Optional[Dict[str, str]]:
     try:
         cognito_client = boto3.client('cognito-idp', region_name=COGNITO_REGION)
         
+        # Prepare auth parameters
+        auth_params = {
+            'USERNAME': email,
+            'PASSWORD': password
+        }
+        
+        # Add SECRET_HASH if client secret is configured
+        if COGNITO_CLIENT_SECRET:
+            auth_params['SECRET_HASH'] = compute_secret_hash(email)
+        
         response = cognito_client.initiate_auth(
             ClientId=COGNITO_CLIENT_ID,
             AuthFlow='USER_PASSWORD_AUTH',
-            AuthParameters={
-                'USERNAME': email,
-                'PASSWORD': password
-            }
+            AuthParameters=auth_params
         )
         
         auth_result = response.get('AuthenticationResult')
