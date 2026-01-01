@@ -34,6 +34,26 @@ from embeddings import preload_models
 preload_models()
 
 
+def make_json_serializable(obj: Any) -> Any:
+    """
+    Recursively convert objects to DynamoDB-compatible format.
+    Handles datetime objects by converting to ISO string.
+    Handles float objects by converting to Decimal.
+    """
+    from datetime import datetime, date
+    from decimal import Decimal
+    
+    if isinstance(obj, (datetime, date)):
+        return obj.isoformat()
+    if isinstance(obj, float):
+        return Decimal(str(obj))
+    if isinstance(obj, dict):
+        return {k: make_json_serializable(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [make_json_serializable(i) for i in obj]
+    return obj
+
+
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Main Lambda handler for chatbot requests.
@@ -237,12 +257,15 @@ def handle_chat(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             full_response = invoke_bedrock_for_reasoning(final_prompt)
             
             # Save assistant response to conversation
+            # Ensure tool_results are JSON serializable (convert datetime to string)
+            sanitized_tool_results = make_json_serializable(agent_result['tool_results'])
+            
             add_message(
                 conversation_id,
                 user_id,
                 'assistant',
                 full_response,
-                tool_calls=agent_result['tool_results']
+                tool_calls=sanitized_tool_results
             )
             
             # Return complete JSON response
