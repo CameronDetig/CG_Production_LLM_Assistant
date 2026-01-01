@@ -353,8 +353,8 @@ def chat_with_backend(
 
 # Build Gradio UI
 with gr.Blocks(title="CG Production Assistant") as demo:
-    gr.Markdown("# 🎬 CG Production LLM Assistant")
-    gr.Markdown("AI-powered search for your CG production assets with conversation memory")
+    gr.Markdown("# CG Production LLM Assistant")
+    gr.Markdown("### Ask questions about assets from Blender Studio's short films")
     
     with gr.Row():
         # Left sidebar - Authentication & Conversations
@@ -373,7 +373,7 @@ with gr.Blocks(title="CG Production Assistant") as demo:
                     logout_btn = gr.Button("Logout")
             
             auth_status = gr.Textbox(
-                label="Status", 
+                label="Authorization Status", 
                 interactive=False,
                 value="✅ Logged in as demo@cgassistant.com (auto-login)"
             )
@@ -401,7 +401,7 @@ with gr.Blocks(title="CG Production Assistant") as demo:
             with gr.Row():
                 msg_input = gr.Textbox(
                     label="Message",
-                    placeholder="Ask about your CG assets... (e.g., 'Show me 4K renders')",
+                    placeholder="Ask questions about the database...",
                     scale=4
                 )
                 send_btn = gr.Button("Send", variant="primary", scale=1)
@@ -494,5 +494,5 @@ if __name__ == "__main__":
         server_name="0.0.0.0",
         server_port=7860,
         share=False,
-        theme=gr.themes.Soft()
+        theme=gr.themes.Ocean()
     )
