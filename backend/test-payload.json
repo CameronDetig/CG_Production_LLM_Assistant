@@ -1,1 +1,3 @@
-{"body": "{\"query\": \"Show me recent images\"}"}
+{
+    "body": "{\"query\": \"Show me recent images\"}"
+}

@@ -27,6 +27,12 @@ _clip_model: Optional[CLIPModel] = None
 _clip_processor: Optional[CLIPProcessor] = None
 
 
+# Define absolute paths to bundled models in Lambda environment
+# /var/task is the Lambda task root where code and files are copied
+LAMBDA_TASK_ROOT = os.environ.get('LAMBDA_TASK_ROOT', '/var/task')
+TEXT_MODEL_PATH = os.path.join(LAMBDA_TASK_ROOT, "model_cache", "text_model")
+CLIP_MODEL_PATH = os.path.join(LAMBDA_TASK_ROOT, "model_cache", "clip_model")
+
 def get_text_embedding_model() -> SentenceTransformer:
     """
     Get or initialize the text embedding model.
@@ -35,9 +41,14 @@ def get_text_embedding_model() -> SentenceTransformer:
     global _text_model
     
     if _text_model is None:
-        logger.info("Loading text embedding model: all-MiniLM-L6-v2")
-        _text_model = SentenceTransformer('sentence-transformers/all-MiniLM-L6-v2')
-        logger.info("Text embedding model loaded successfully")
+        logger.info(f"Loading text embedding model from: {TEXT_MODEL_PATH}")
+        try:
+            # Load explicitly from local directory
+            _text_model = SentenceTransformer(TEXT_MODEL_PATH, device='cpu')
+            logger.info("Text embedding model loaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to load text model from {TEXT_MODEL_PATH}: {e}")
+            raise
     
     return _text_model
 
@@ -50,10 +61,15 @@ def get_clip_model():
     global _clip_model, _clip_processor
     
     if _clip_model is None or _clip_processor is None:
-        logger.info("Loading CLIP model: clip-vit-base-patch32")
-        _clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-        _clip_processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-        logger.info("CLIP model loaded successfully")
+        logger.info(f"Loading CLIP model from: {CLIP_MODEL_PATH}")
+        try:
+            # Load explicitly from local directory
+            _clip_model = CLIPModel.from_pretrained(CLIP_MODEL_PATH, local_files_only=True)
+            _clip_processor = CLIPProcessor.from_pretrained(CLIP_MODEL_PATH, local_files_only=True)
+            logger.info("CLIP model loaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to load CLIP model from {CLIP_MODEL_PATH}: {e}")
+            raise
     
     return _clip_model, _clip_processor
 

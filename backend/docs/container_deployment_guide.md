@@ -127,7 +127,7 @@ add a connection to the cg-metadate-db database
 
 ```bash
 # Create test event
-cat > test-event.json <<EOF
+cat > test-payload.json <<EOF
 {
   "body": "{\"query\": \"Show me recent renders\", \"user_id\": \"test\"}"
 }
@@ -136,7 +136,8 @@ EOF
 # Invoke function
 aws lambda invoke \
     --function-name $FUNCTION_NAME \
-    --payload file://test-event.json \
+    --cli-binary-format raw-in-base64-out \
+    --payload file://test-payload.json \
     --region $REGION \
     response.json
 
