@@ -384,6 +384,8 @@ with gr.Blocks(title="CG Production Assistant") as demo:
             conversations_list = gr.Dropdown(
                 label="Your Conversations",
                 choices=[],
+                value=None,
+                allow_custom_value=True,
                 interactive=True
             )
             refresh_convs_btn = gr.Button("🔄 Refresh")
