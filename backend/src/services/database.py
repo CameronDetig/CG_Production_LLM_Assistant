@@ -103,39 +103,6 @@ def get_database_stats() -> Dict[str, Any]:
         release_connection(conn)
 
 
-def get_relevant_metadata(query: str, limit: int = 10, use_semantic: bool = True) -> List[Dict[str, Any]]:
-    """
-    Retrieve relevant metadata from PostgreSQL based on user query.
-    Uses semantic (vector) search.
-    
-    Args:
-        query: User's search query
-        limit: Maximum number of results to return
-        use_semantic: Whether to use semantic search (default: True)
-        
-    Returns:
-        List of metadata dictionaries
-    """
-    if use_semantic:
-        try:
-            # Try semantic search first
-            from src.services.embeddings import generate_text_embedding
-            query_embedding = generate_text_embedding(query)
-            results = search_by_text_embedding(query_embedding, limit)
-            
-            if results:
-                logger.info(f"Semantic search returned {len(results)} results")
-                return results
-            else:
-                logger.info("Semantic search returned no results")
-        except Exception as e:
-            logger.warning(f"Semantic search failed: {str(e)}")
-    
-    # Return empty list if semantic search disabled or failed
-    return []
-
-
-
 def _add_thumbnail_urls(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
     Add presigned thumbnail URLs to search results.
@@ -167,73 +134,41 @@ def _add_thumbnail_urls(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return results
 
 
-def search_by_text_embedding(query_embedding: List[float], limit: int = 10) -> List[Dict[str, Any]]:
+def execute_generated_sql(
+    sql: str,
+    limit: int = 100
+) -> List[Dict[str, Any]]:
     """
-    Search using text embedding similarity (pgvector).
-    Uses all-MiniLM-L6-v2 embeddings (384 dimensions) on metadata_embedding column.
+    Execute LLM-generated SQL query safely.
     
     Args:
-        query_embedding: 384-dimensional text embedding
-        limit: Maximum number of results
+        sql: SQL query string (must be SELECT only)
+        limit: Maximum number of results (default: 100)
         
     Returns:
-        List of similar file metadata with type-specific details and thumbnail URLs
+        List of query results with thumbnail URLs added
+        
+    Raises:
+        ValueError: If query is not a SELECT statement
+        Exception: Database errors
     """
     conn = None
     try:
         start_time = time.time()
         
+        # Validate query is SELECT only
+        sql_upper = sql.strip().upper()
+        if not sql_upper.startswith('SELECT') and not sql_upper.startswith('WITH'):
+            raise ValueError("Only SELECT queries are allowed for security")
+        
+        # Check if query already has LIMIT
+        if 'LIMIT' not in sql_upper:
+            sql = f"{sql.rstrip(';')} LIMIT {limit}"
+        
         conn = get_connection()
         cursor = conn.cursor(cursor_factory=RealDictCursor)
         
-        # pgvector cosine distance search on files table
-        # Joins with type-specific tables to get additional metadata
-        sql = """
-            SELECT 
-                f.id,
-                f.file_name,
-                f.file_path,
-                f.file_type,
-                f.extension,
-                f.file_size,
-                f.created_date,
-                f.modified_date,
-                f.metadata_json,
-                -- Blend file specific fields
-                bf.render_engine,
-                bf.resolution_x,
-                bf.resolution_y,
-                bf.num_frames,
-                bf.fps,
-                bf.total_objects,
-                bf.thumbnail_path as blend_thumbnail,
-                -- Image specific fields
-                img.width as image_width,
-                img.height as image_height,
-                img.mode as image_mode,
-                img.thumbnail_path as image_thumbnail,
-                -- Video specific fields
-                vid.width as video_width,
-                vid.height as video_height,
-                vid.duration,
-                vid.fps as video_fps,
-                vid.codec,
-                vid.thumbnail_path as video_thumbnail,
-                -- Similarity score
-                1 - (f.metadata_embedding <=> %s::vector) AS similarity
-            FROM files f
-            LEFT JOIN blend_files bf ON f.id = bf.file_id
-            LEFT JOIN images img ON f.id = img.file_id
-            LEFT JOIN videos vid ON f.id = vid.file_id
-            WHERE f.metadata_embedding IS NOT NULL
-            ORDER BY f.metadata_embedding <=> %s::vector
-            LIMIT %s
-        """
-        
-        # Convert embedding to PostgreSQL vector format
-        embedding_str = f"[{','.join(map(str, query_embedding))}]"
-        
-        cursor.execute(sql, (embedding_str, embedding_str, limit))
+        cursor.execute(sql)
         results = cursor.fetchall()
         
         metadata_list = [dict(row) for row in results]
@@ -243,118 +178,12 @@ def search_by_text_embedding(query_embedding: List[float], limit: int = 10) -> L
         
         cursor.close()
         
-        logger.info(f"Text embedding search returned {len(metadata_list)} results in {time.time() - start_time:.3f}s")
+        logger.info(f"Generated SQL executed successfully in {time.time() - start_time:.3f}s, returned {len(metadata_list)} results")
         return metadata_list
         
     except Exception as e:
-        logger.error(f"Text embedding search error: {str(e)}", exc_info=True)
-        return []
-    finally:
-        if conn:
-            release_connection(conn)
-
-
-def search_by_image_embedding(query_text: str, limit: int = 10) -> List[Dict[str, Any]]:
-    """
-    Search images using CLIP text-to-image cross-modal search.
-    Converts text query to CLIP embedding and searches visual_embedding (512 dimensions).
-    Searches across images, videos, and blend_files tables.
-    
-    Args:
-        query_text: Text description to search for in images
-        limit: Maximum number of results
-        
-    Returns:
-        List of files with similar visual content
-    """
-    conn = None
-    try:
-        start_time = time.time()
-        
-        from src.services.embeddings import generate_image_embedding_from_text
-        
-        # Generate CLIP embedding from text
-        query_embedding = generate_image_embedding_from_text(query_text)
-        embedding_str = f"[{','.join(map(str, query_embedding))}]"
-        
-        conn = get_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        # Search across all tables with visual embeddings using UNION
-        sql = """
-            (
-                SELECT 
-                    f.id,
-                    f.file_name,
-                    f.file_path,
-                    f.file_type,
-                    f.file_size,
-                    f.created_date,
-                    f.modified_date,
-                    img.width,
-                    img.height,
-                    img.thumbnail_path,
-                    1 - (img.visual_embedding <=> %s::vector) AS similarity
-                FROM files f
-                JOIN images img ON f.id = img.file_id
-                WHERE img.visual_embedding IS NOT NULL
-            )
-            UNION ALL
-            (
-                SELECT 
-                    f.id,
-                    f.file_name,
-                    f.file_path,
-                    f.file_type,
-                    f.file_size,
-                    f.created_date,
-                    f.modified_date,
-                    vid.width,
-                    vid.height,
-                    vid.thumbnail_path,
-                    1 - (vid.visual_embedding <=> %s::vector) AS similarity
-                FROM files f
-                JOIN videos vid ON f.id = vid.file_id
-                WHERE vid.visual_embedding IS NOT NULL
-            )
-            UNION ALL
-            (
-                SELECT 
-                    f.id,
-                    f.file_name,
-                    f.file_path,
-                    f.file_type,
-                    f.file_size,
-                    f.created_date,
-                    f.modified_date,
-                    bf.resolution_x as width,
-                    bf.resolution_y as height,
-                    bf.thumbnail_path,
-                    1 - (bf.visual_embedding <=> %s::vector) AS similarity
-                FROM files f
-                JOIN blend_files bf ON f.id = bf.file_id
-                WHERE bf.visual_embedding IS NOT NULL
-            )
-            ORDER BY similarity DESC
-            LIMIT %s
-        """
-        
-        cursor.execute(sql, (embedding_str, embedding_str, embedding_str, limit))
-        results = cursor.fetchall()
-        
-        metadata_list = [dict(row) for row in results]
-        
-        # Add thumbnail URLs
-        metadata_list = _add_thumbnail_urls(metadata_list)
-        
-        cursor.close()
-        
-        logger.info(f"Image embedding search returned {len(metadata_list)} results in {time.time() - start_time:.3f}s")
-        return metadata_list
-        
-    except Exception as e:
-        logger.error(f"Image embedding search error: {str(e)}", exc_info=True)
-        return []
+        logger.error(f"Error executing generated SQL: {str(e)}", exc_info=True)
+        raise
     finally:
         if conn:
             release_connection(conn)

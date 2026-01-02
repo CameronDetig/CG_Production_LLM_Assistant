@@ -63,5 +63,5 @@ echo ""
 
 # Clean up temp environment variable after running
 cd "$FRONTEND_DIR"
-export API_URL="http://localhost:5000/chat"
+export API_ENDPOINT="http://localhost:5000"
 python3 app.py

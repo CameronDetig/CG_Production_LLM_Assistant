@@ -1,5 +1,5 @@
 """
-AWS Lambda function for AI chatbot with LangGraph ReAct agent.
+AWS Lambda function for AI chatbot with LangGraph chat agent.
 Handles streaming responses, conversation management, and authentication.
 """
 
@@ -18,7 +18,7 @@ from src.services.conversations import (
     update_conversation_title,
     generate_title_from_query
 )
-from src.core.agent import run_agent
+from src.core.chat_agent import run_chat_agent
 from src.services.bedrock_client import stream_bedrock_response
 
 # Configure logging
@@ -190,17 +190,17 @@ def handle_chat(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Add user message to conversation
         add_message(conversation_id, user_id, 'user', query)
         
-        # Run agent to get tool results and final answer prompt
+        # Run chat agent to get SQL query results and final answer
         start_time = time.time()
-        agent_result = run_agent(
+        agent_result = run_chat_agent(
             query=query,
             conversation_history=conversation_history,
             uploaded_image_base64=uploaded_image_base64,
-            max_iterations=5
+            max_attempts=2
         )
         agent_time = time.time() - start_time
         
-        logger.info(f"Agent completed in {agent_time:.2f}s with {agent_result['iterations']} iterations and {len(agent_result['tool_results'])} tool calls")
+        logger.info(f"Chat agent completed in {agent_time:.2f}s with {agent_result['attempts']} SQL attempts and {len(agent_result.get('query_results', []))} results")
         
         # Check if streaming is enabled (default: true)
         enable_streaming = os.environ.get('ENABLE_STREAMING', 'true').lower() == 'true'
@@ -210,63 +210,99 @@ def handle_chat(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             def generate_sse_stream() -> Generator[str, None, None]:
                 """Generate Server-Sent Events stream with agent steps and final answer"""
                 
-                # Stream agent reasoning steps
+                # Stream agent start
                 yield format_sse_event('agent_start', {
                     'conversation_id': conversation_id,
-                    'iterations': agent_result['iterations']
+                    'attempts': agent_result['attempts']
                 })
-            
-                # Stream tool calls
-                for tool_result in agent_result['tool_results']:
-                    yield format_sse_event('tool_call', {
-                        'tool': tool_result['tool'],
-                        'args': tool_result['args']
+                
+                # Stream enhanced query if available
+                if agent_result.get('enhanced_query'):
+                    yield format_sse_event('enhanced_query', {
+                        'query': agent_result['enhanced_query']
                     })
-                    
-                    # Stream tool result summary
-                    result = tool_result.get('result', [])
-                    if isinstance(result, list):
-                        yield format_sse_event('tool_result', {
-                            'tool': tool_result['tool'],
-                            'count': len(result),
-                            'results': sanitize_for_json(result[:3])  # First 3 results as preview
+            
+                # Stream ALL SQL queries (including retries) with their results and feedback
+                all_sql_queries = agent_result.get('all_sql_queries', [])
+                if all_sql_queries:
+                    for query_info in all_sql_queries:
+                        # Send SQL query
+                        yield format_sse_event('sql_query', {
+                            'query': query_info['sql'],
+                            'attempt': query_info.get('attempt', 1)
                         })
                         
-                        # Stream thumbnails if available
-                        for item in result[:10]:  # Top 10 with thumbnails
-                            if item.get('thumbnail_url'):
-                                yield format_sse_event('thumbnail', {
-                                    'file_id': item.get('id'),
-                                    'file_name': item.get('file_name'),
-                                    'thumbnail_url': item['thumbnail_url']
-                                })
-                    elif isinstance(result, dict):
-                        yield format_sse_event('tool_result', {
-                            'tool': tool_result['tool'],
-                            'result': sanitize_for_json(result)
-                        })
+                        # Send query results if available
+                        if query_info.get('results') is not None:
+                            yield format_sse_event('query_results', {
+                                'count': query_info.get('result_count', 0),
+                                'attempt': query_info.get('attempt', 1),
+                                'results': sanitize_for_json(query_info['results'][:5])  # First 5 as preview
+                            })
+                        
+                        # Send feedback if this attempt was unsatisfactory
+                        if query_info.get('feedback'):
+                            yield format_sse_event('retry_feedback', {
+                                'feedback': query_info['feedback'],
+                                'attempt': query_info.get('attempt', 1)
+                            })
+                elif agent_result.get('sql_query'):
+                    # Fallback to single query if history not available
+                    yield format_sse_event('sql_query', {
+                        'query': agent_result['sql_query'],
+                        'attempt': 1
+                    })
                 
-                # Stream final answer from Bedrock
+                # Stream final query results (for backward compatibility)
+                query_results = agent_result.get('query_results', [])
+                if query_results and not all_sql_queries:
+                    yield format_sse_event('query_results', {
+                        'count': len(query_results),
+                        'results': sanitize_for_json(query_results[:5])  # First 5 results as preview
+                    })
+                    
+                    # Stream thumbnails if available
+                    for item in query_results[:10]:  # Top 10 with thumbnails
+                        if item.get('thumbnail_url'):
+                            yield format_sse_event('thumbnail', {
+                                'file_id': item.get('id'),
+                                'file_name': item.get('file_name'),
+                                'thumbnail_url': item['thumbnail_url']
+                            })
+                
+                # Stream final answer
                 yield format_sse_event('answer_start', {})
                 
-                full_response = ""
-                final_prompt = agent_result['final_answer']
+                full_response = agent_result.get('final_answer', 'No answer generated.')
                 
-                for chunk in stream_bedrock_response(final_prompt):
-                    full_response += chunk
-                    yield format_sse_event('answer_chunk', {'text': chunk})
+                # If final_answer is a prompt (old behavior), stream from Bedrock
+                # Otherwise, just send the answer directly
+                if full_response and full_response.startswith('<|begin_of_text|>'):
+                    # It's a prompt, stream from Bedrock
+                    streamed_response = ""
+                    for chunk in stream_bedrock_response(full_response):
+                        streamed_response += chunk
+                        yield format_sse_event('answer_chunk', {'text': chunk})
+                    full_response = streamed_response
+                else:
+                    # It's already the final answer, send it
+                    yield format_sse_event('answer_chunk', {'text': full_response})
                 
                 yield format_sse_event('answer_end', {})
                 
                 # Save assistant response to conversation
                 # Make sure to use DynamoDB format (Decimals)
-                dynamo_tool_results = make_json_serializable(agent_result['tool_results'])
+                dynamo_query_results = make_json_serializable(query_results)
                 add_message(
                     conversation_id,
                     user_id,
                     'assistant',
                     full_response,
-                    tool_calls=dynamo_tool_results
+                    tool_calls=[{
+                        'sql_query': agent_result.get('sql_query'),
+                        'result_count': len(query_results),
+                        'results': dynamo_query_results[:10]  # Store top 10
+                    }]
                 )
                 
                 # Send final event
@@ -291,23 +327,31 @@ def handle_chat(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             # NON-STREAMING MODE: Return complete JSON response
             from src.services.bedrock_client import invoke_bedrock_for_reasoning
             
-            # Generate complete response (non-streaming)
-            final_prompt = agent_result['final_answer']
-            full_response = invoke_bedrock_for_reasoning(final_prompt)
+            # Get final response
+            full_response = agent_result.get('final_answer', 'No answer generated.')
+            
+            # If final_answer is a prompt, generate response from Bedrock
+            if full_response and full_response.startswith('<|begin_of_text|>'):
+                full_response = invoke_bedrock_for_reasoning(full_response)
             
             # Save assistant response to conversation (DynamoDB format)
-            dynamo_tool_results = make_json_serializable(agent_result['tool_results'])
+            query_results = agent_result.get('query_results', [])
+            dynamo_query_results = make_json_serializable(query_results)
             
             add_message(
                 conversation_id,
                 user_id,
                 'assistant',
                 full_response,
-                tool_calls=dynamo_tool_results
+                tool_calls=[{
+                    'sql_query': agent_result.get('sql_query'),
+                    'result_count': len(query_results),
+                    'results': dynamo_query_results[:10]
+                }]
             )
             
             # Prepare JSON response (JSON format)
-            json_tool_results = sanitize_for_json(agent_result['tool_results'])
+            json_query_results = sanitize_for_json(query_results)
             
             # Return complete JSON response
             return {
@@ -315,10 +359,10 @@ def handle_chat(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 'headers': get_cors_headers(),
                 'body': json.dumps({
                     'conversation_id': conversation_id,
-                    'iterations': agent_result['iterations'],
-                    'tool_calls': json_tool_results,
+                    'attempts': agent_result['attempts'],
+                    'sql_query': agent_result.get('sql_query'),
+                    'query_results': json_query_results,
                     'answer': full_response,
-
                     'message_count': len(conversation_history) + 2
                 }, indent=2)  # Pretty print for easier reading
             }
@@ -560,7 +604,7 @@ def format_sse_event(event_type: str, data: Dict[str, Any]) -> str:
     Format data as Server-Sent Event.
     
     Args:
-        event_type: Type of event (e.g., 'answer_chunk', 'tool_call')
+        event_type: Type of event (e.g., 'sql_query', 'query_results', 'answer_chunk', 'thumbnail')
         data: Event data
         
     Returns:
