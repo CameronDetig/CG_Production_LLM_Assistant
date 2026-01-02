@@ -8,9 +8,9 @@ import os
 import logging
 import time
 from typing import Dict, Any, Generator, Optional
-from database import init_db_connection
-from auth import extract_user_from_event
-from conversations import (
+from src.services.database import init_db_connection
+from src.auth.cognito import extract_user_from_event
+from src.services.conversations import (
     create_conversation,
     get_conversation,
     add_message,
@@ -18,8 +18,8 @@ from conversations import (
     update_conversation_title,
     generate_title_from_query
 )
-from agent import run_agent
-from bedrock_client import stream_bedrock_response
+from src.core.agent import run_agent
+from src.services.bedrock_client import stream_bedrock_response
 
 # Configure logging
 logger = logging.getLogger()
@@ -30,7 +30,7 @@ if not os.environ.get('SKIP_DB_INIT'):
     init_db_connection()
 
 # Preload embedding models to reduce cold start time
-from embeddings import preload_models
+from src.services.embeddings import preload_models
 preload_models()
 
 
@@ -289,7 +289,7 @@ def handle_chat(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         
         else:
             # NON-STREAMING MODE: Return complete JSON response
-            from bedrock_client import invoke_bedrock_for_reasoning
+            from src.services.bedrock_client import invoke_bedrock_for_reasoning
             
             # Generate complete response (non-streaming)
             final_prompt = agent_result['final_answer']
@@ -345,7 +345,7 @@ def handle_list_conversations(event: Dict[str, Any], context: Any) -> Dict[str, 
                 'body': json.dumps({'error': 'Authentication required'})
             }
         
-        from conversations import list_conversations
+        from src.services.conversations import list_conversations
         conversations = list_conversations(user_id, limit=50)
         
         return {
@@ -474,7 +474,7 @@ def handle_auth(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         logger.info(f"Authentication attempt for user: {email}")
         
         # Authenticate with Cognito
-        from auth import authenticate_user
+        from src.auth.cognito import authenticate_user
         tokens = authenticate_user(email, password)
         
         if tokens:
@@ -530,7 +530,7 @@ def handle_delete_conversation(event: Dict[str, Any], context: Any) -> Dict[str,
                 'body': json.dumps({'error': 'Conversation ID required'})
             }
         
-        from conversations import delete_conversation
+        from src.services.conversations import delete_conversation
         success = delete_conversation(conversation_id, user_id)
         
         if success:

@@ -9,7 +9,7 @@ from typing import List, Dict, Any, Optional
 import psycopg2
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
-from s3_utils import get_thumbnail_url
+from src.services.s3_utils import get_thumbnail_url
 
 logger = logging.getLogger()
 
@@ -118,7 +118,7 @@ def get_relevant_metadata(query: str, limit: int = 10, use_semantic: bool = True
     if use_semantic:
         try:
             # Try semantic search first
-            from embeddings import generate_text_embedding
+            from src.services.embeddings import generate_text_embedding
             query_embedding = generate_text_embedding(query)
             results = search_by_text_embedding(query_embedding, limit)
             
@@ -270,7 +270,7 @@ def search_by_image_embedding(query_text: str, limit: int = 10) -> List[Dict[str
     try:
         start_time = time.time()
         
-        from embeddings import generate_image_embedding_from_text
+        from src.services.embeddings import generate_image_embedding_from_text
         
         # Generate CLIP embedding from text
         query_embedding = generate_image_embedding_from_text(query_text)

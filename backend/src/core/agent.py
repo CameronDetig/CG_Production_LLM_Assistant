@@ -10,8 +10,8 @@ from typing import List, Dict, Any, Optional, TypedDict, Annotated
 import operator
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
-from bedrock_client import invoke_bedrock_for_reasoning, stream_bedrock_response
-from tools import AVAILABLE_TOOLS
+from src.services.bedrock_client import invoke_bedrock_for_reasoning, stream_bedrock_response
+from src.core.tools import AVAILABLE_TOOLS
 
 logger = logging.getLogger()
 
@@ -69,10 +69,34 @@ def reasoning_node(state: AgentState) -> AgentState:
     Reasoning node: LLM decides which tools to call based on the query and previous results.
     
     Uses custom ReAct prompting for Llama models.
+    
+    Special handling: If user uploaded an image, automatically inject search_by_uploaded_image
+    tool call on first iteration to ensure image search happens.
     """
     start_time = time.time()
     logger.info(f"Reasoning node - Iteration {state['iteration']}")
     
+    # Initialize tool_results if not present
+    if not state.get('tool_results'):
+        state['tool_results'] = []
+    
+    # AUTO-INJECT IMAGE SEARCH: If user uploaded an image and this is first iteration,
+    # automatically add search_by_uploaded_image tool call instead of relying on LLM
+    if state.get('uploaded_image_base64') and state['iteration'] == 0:
+        logger.info("User uploaded image detected - auto-injecting search_by_uploaded_image tool")
+        state['tool_results'].append({
+            'tool': 'search_by_uploaded_image',
+            'args': {
+                'image_base64': state['uploaded_image_base64'],
+                'limit': 10
+            },
+            'result': None
+        })
+        # Skip LLM reasoning for this iteration - go straight to tool execution
+        logger.info(f"Reasoning node completed (auto-inject) in {time.time() - start_time:.2f}s")
+        return state
+    
+    # Normal LLM-based reasoning for all other cases
     # Build ReAct prompt for Llama
     prompt_start = time.time()
     prompt = build_react_prompt(
@@ -93,10 +117,6 @@ def reasoning_node(state: AgentState) -> AgentState:
     
     # Add to messages
     state['messages'].append(AIMessage(content=response))
-    
-    # Store tool calls for execution
-    if not state.get('tool_results'):
-        state['tool_results'] = []
     
     # Add parsed tool calls to state
     for tool_call in tool_calls:

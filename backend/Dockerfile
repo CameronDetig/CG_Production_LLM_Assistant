@@ -27,7 +27,7 @@ RUN pip install --upgrade pip && \
 
 # Pre-download HuggingFace models so they're bundled in the image
 # This is critical for Lambda in VPC which has no internet access
-COPY download_models.py .
+COPY src/core/download_models.py .
 RUN PYTHONPATH=/install python download_models.py
 
 # Stage 2: Copy to Lambda base image
@@ -40,7 +40,8 @@ COPY --from=builder /install ${LAMBDA_TASK_ROOT}
 COPY --from=builder /install/model_cache ${LAMBDA_TASK_ROOT}/model_cache
 
 # Copy all Python function code
-COPY *.py ${LAMBDA_TASK_ROOT}/
+COPY lambda_function.py ${LAMBDA_TASK_ROOT}/
+COPY src/ ${LAMBDA_TASK_ROOT}/src/
 
 # Force offline mode - prevent any network requests
 ENV TRANSFORMERS_OFFLINE=1
