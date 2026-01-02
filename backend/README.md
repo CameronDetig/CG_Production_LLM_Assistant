@@ -26,6 +26,19 @@ See [docs/SCHEMA.md](docs/SCHEMA.md) for details.
 
 ---
 
+## Project Structure
+
+The backend is organized into logical modules:
+
+- **`src/core/`** - Core business logic (agent, tools)
+- **`src/services/`** - External integrations (database, Bedrock, S3, DynamoDB)
+- **`src/auth/`** - Authentication (Cognito)
+- **`testing/`** - Test files
+- **`scripts/`** - Deployment and setup scripts
+- **`lambda_function.py`** - Lambda entry point (root level)
+
+---
+
 ## Files Created
 
 | File | Purpose |

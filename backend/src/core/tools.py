@@ -7,7 +7,7 @@ import logging
 import time
 from typing import List, Dict, Any
 from langchain.tools import tool
-from database import (
+from src.services.database import (
     search_by_text_embedding,
     search_by_image_embedding,
     keyword_search,
@@ -15,7 +15,7 @@ from database import (
     get_connection,
     release_connection
 )
-from embeddings import generate_text_embedding, generate_image_embedding_from_base64
+from src.services.embeddings import generate_text_embedding, generate_image_embedding_from_base64
 from psycopg2.extras import RealDictCursor
 
 logger = logging.getLogger()
@@ -110,7 +110,7 @@ def search_by_uploaded_image(image_base64: str, limit: int = 10) -> List[Dict[st
         User uploads an image of a car -> find similar car images in database
     """
     try:
-        from database import search_by_text_embedding  # We'll create a vector-based search
+        from src.services.database import search_by_text_embedding  # We'll create a vector-based search
         
         # Generate CLIP embedding from uploaded image
         query_embedding = generate_image_embedding_from_base64(image_base64)
@@ -119,7 +119,7 @@ def search_by_uploaded_image(image_base64: str, limit: int = 10) -> List[Dict[st
         # Note: This requires a new function in database.py that searches visual_embedding column
         conn = None
         try:
-            from database import get_connection, release_connection, _add_thumbnail_urls
+            from src.services.database import get_connection, release_connection, _add_thumbnail_urls
             from psycopg2.extras import RealDictCursor
             
             conn = get_connection()
@@ -312,7 +312,7 @@ def filter_by_metadata(
         cursor.execute(sql, params)
         results = cursor.fetchall()
         
-        from database import _add_thumbnail_urls
+        from src.services.database import _add_thumbnail_urls
         metadata_list = [dict(row) for row in results]
         metadata_list = _add_thumbnail_urls(metadata_list)
         
@@ -362,7 +362,7 @@ def get_file_details(file_id: int) -> Dict[str, Any]:
         result = cursor.fetchone()
         
         if result:
-            from database import _add_thumbnail_urls
+            from src.services.database import _add_thumbnail_urls
             file_data = dict(result)
             _add_thumbnail_urls([file_data])
             cursor.close()

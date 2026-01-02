@@ -3,13 +3,11 @@ __pycache__/
 *.py[cod]
 *$py.class
 
-# Distribution / packaging
-package/
-deployment.zip
-*.egg-info/
-
 # Environment variables
 .env
+
+# downloaded embedding models
+model_cache/
 
 # IDE
 .vscode/

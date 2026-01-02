@@ -27,11 +27,24 @@ _clip_model: Optional[CLIPModel] = None
 _clip_processor: Optional[CLIPProcessor] = None
 
 
-# Define absolute paths to bundled models in Lambda environment
-# /var/task is the Lambda task root where code and files are copied
+# Define absolute paths to bundled models
+# Supports both Lambda (/var/task) and local development (backend/model_cache)
 LAMBDA_TASK_ROOT = os.environ.get('LAMBDA_TASK_ROOT', '/var/task')
-TEXT_MODEL_PATH = os.path.join(LAMBDA_TASK_ROOT, "model_cache", "text_model")
-CLIP_MODEL_PATH = os.path.join(LAMBDA_TASK_ROOT, "model_cache", "clip_model")
+
+# Check if we're in Lambda or local environment
+if os.path.exists(os.path.join(LAMBDA_TASK_ROOT, "model_cache")):
+    # Lambda environment - models are in /var/task/model_cache
+    MODEL_CACHE_DIR = os.path.join(LAMBDA_TASK_ROOT, "model_cache")
+else:
+    # Local development - models are in backend/model_cache
+    # Get the backend directory (3 levels up from this file: backend/src/services/embeddings.py)
+    BACKEND_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    MODEL_CACHE_DIR = os.path.join(BACKEND_DIR, "model_cache")
+
+TEXT_MODEL_PATH = os.path.join(MODEL_CACHE_DIR, "text_model")
+CLIP_MODEL_PATH = os.path.join(MODEL_CACHE_DIR, "clip_model")
+
+logger.info(f"Model cache directory: {MODEL_CACHE_DIR}")
 
 def get_text_embedding_model() -> SentenceTransformer:
     """
