@@ -208,10 +208,10 @@ aws lambda update-function-configuration \
 
 ## Step 6: Test Presigned URL Generation
 
-Once `s3_utils.py` is implemented, test presigned URL generation:
+Once `s3_thumbnail_utils.py` is implemented, test presigned URL generation:
 
 ```python
-from s3_utils import get_thumbnail_url
+from s3_thumbnail_utils import get_thumbnail_url
 
 # Test with a real file
 url = get_thumbnail_url("images/123_thumb.jpg")
@@ -232,7 +232,7 @@ print(url)
 
 ### Presigned URLs Expire Too Quickly
 
-Default expiration is 3600 seconds (1 hour). Adjust in `s3_utils.py`:
+Default expiration is 3600 seconds (1 hour). Adjust in `s3_thumbnail_utils.py`:
 
 ```python
 url = s3_client.generate_presigned_url(
@@ -277,6 +277,6 @@ aws s3 sync ./thumbnails/ s3://cg-production-thumbnails/ \
 
 After S3 setup is complete:
 1. ✅ S3 bucket created and configured
-2. ➡️ Implement `s3_utils.py` for presigned URL generation
+2. ➡️ Implement `s3_thumbnail_utils.py` for presigned URL generation
 3. ➡️ Update database functions to include thumbnail URLs
 4. ➡️ Test thumbnail display in frontend

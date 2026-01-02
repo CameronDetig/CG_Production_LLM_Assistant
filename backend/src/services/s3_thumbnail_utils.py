@@ -114,47 +114,6 @@ def get_thumbnail_path(file_id: int, file_type: str) -> str:
     return f"{folder}/{file_id}_thumb.jpg"
 
 
-def upload_thumbnail(file_id: int, file_type: str, image_bytes: bytes) -> Optional[str]:
-    """
-    Upload thumbnail to S3 (for future use when generating thumbnails).
-    
-    Args:
-        file_id: Database file ID
-        file_type: File type ('image', 'video', 'blend')
-        image_bytes: JPEG image bytes (512x512)
-        
-    Returns:
-        S3 key of uploaded thumbnail, or None if upload fails
-        
-    Example:
-        >>> with open('thumbnail.jpg', 'rb') as f:
-        ...     image_bytes = f.read()
-        >>> key = upload_thumbnail(123, 'image', image_bytes)
-        >>> print(key)
-        'image/123_thumb.jpg'
-    """
-    try:
-        key = get_thumbnail_path(file_id, file_type)
-        
-        s3_client.put_object(
-            Bucket=BUCKET_NAME,
-            Key=key,
-            Body=image_bytes,
-            ContentType='image/jpeg',
-            CacheControl='max-age=31536000'  # Cache for 1 year
-        )
-        
-        logger.info(f"Uploaded thumbnail to s3://{BUCKET_NAME}/{key}")
-        return key
-        
-    except ClientError as e:
-        logger.error(f"Error uploading thumbnail for file {file_id}: {str(e)}", exc_info=True)
-        return None
-    except Exception as e:
-        logger.error(f"Unexpected error uploading thumbnail: {str(e)}", exc_info=True)
-        return None
-
-
 def check_thumbnail_exists(thumbnail_path: str) -> bool:
     """
     Check if thumbnail exists in S3.

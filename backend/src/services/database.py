@@ -9,7 +9,8 @@ from typing import List, Dict, Any, Optional
 import psycopg2
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
-from src.services.s3_utils import get_thumbnail_url
+
+from src.services.s3_thumbnail_utils import get_thumbnail_url
 
 logger = logging.getLogger()
 
@@ -105,7 +106,7 @@ def get_database_stats() -> Dict[str, Any]:
 def get_relevant_metadata(query: str, limit: int = 10, use_semantic: bool = True) -> List[Dict[str, Any]]:
     """
     Retrieve relevant metadata from PostgreSQL based on user query.
-    Uses hybrid search: semantic (vector) + keyword matching.
+    Uses semantic (vector) search.
     
     Args:
         query: User's search query
@@ -126,12 +127,12 @@ def get_relevant_metadata(query: str, limit: int = 10, use_semantic: bool = True
                 logger.info(f"Semantic search returned {len(results)} results")
                 return results
             else:
-                logger.info("Semantic search returned no results, falling back to keyword search")
+                logger.info("Semantic search returned no results")
         except Exception as e:
-            logger.warning(f"Semantic search failed, falling back to keyword search: {str(e)}")
+            logger.warning(f"Semantic search failed: {str(e)}")
     
-    # Fallback to keyword search
-    return keyword_search(query, limit)
+    # Return empty list if semantic search disabled or failed
+    return []
 
 
 
@@ -359,103 +360,12 @@ def search_by_image_embedding(query_text: str, limit: int = 10) -> List[Dict[str
             release_connection(conn)
 
 
-def keyword_search(query: str, limit: int = 10) -> List[Dict[str, Any]]:
-    """
-    Traditional keyword-based search (fallback).
-    Searches file_name, file_path, and metadata_json fields.
-    
-    Args:
-        query: User's search query
-        limit: Maximum number of results
-        
-    Returns:
-        List of metadata dictionaries
-    """
-    conn = None
-    try:
-        conn = get_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        # Extract search keywords from query
-        keywords = extract_keywords(query)
-        
-        # Build SQL query with keyword matching on files table
-        sql = """
-            SELECT 
-                f.id,
-                f.file_name,
-                f.file_path,
-                f.file_type,
-                f.extension,
-                f.file_size,
-                f.created_date,
-                f.modified_date,
-                f.metadata_json,
-                bf.render_engine,
-                bf.resolution_x,
-                bf.resolution_y,
-                bf.num_frames,
-                bf.thumbnail_path as blend_thumbnail,
-                img.thumbnail_path as image_thumbnail,
-                vid.thumbnail_path as video_thumbnail
-            FROM files f
-            LEFT JOIN blend_files bf ON f.id = bf.file_id
-            LEFT JOIN images img ON f.id = img.file_id
-            LEFT JOIN videos vid ON f.id = vid.file_id
-            WHERE 
-                f.file_name ILIKE ANY(%s)
-                OR f.file_path ILIKE ANY(%s)
-                OR f.metadata_json::text ILIKE ANY(%s)
-            ORDER BY f.modified_date DESC
-            LIMIT %s
-        """
-        
-        # Create ILIKE patterns for each keyword
-        patterns = [f"%{kw}%" for kw in keywords]
-        
-        cursor.execute(sql, (patterns, patterns, patterns, limit))
-        results = cursor.fetchall()
-        
-        # Convert to list of dicts
-        metadata_list = [dict(row) for row in results]
-        
-        cursor.close()
-        
-        logger.info(f"Keyword search returned {len(metadata_list)} results for query: {query}")
-        return metadata_list
-        
-    except Exception as e:
-        logger.error(f"Keyword search error: {str(e)}", exc_info=True)
-        return []
-    finally:
-        if conn:
-            release_connection(conn)
 
 
 
 
-def extract_keywords(query: str) -> List[str]:
-    """
-    Extract search keywords from user query.
-    
-    Args:
-        query: User's query string
-        
-    Returns:
-        List of keywords
-    """
-    # Simple keyword extraction (can be enhanced with NLP)
-    stopwords = {'the', 'a', 'an', 'and', 'or', 'but', 'in', 'on', 'at', 'to', 'for',
-                 'show', 'me', 'find', 'get', 'list', 'what', 'where', 'when', 'how'}
-    
-    words = query.lower().split()
-    keywords = [w.strip('.,!?') for w in words if w.lower() not in stopwords and len(w) > 2]
-    
-    # If no keywords found, use the whole query
-    if not keywords:
-        keywords = [query]
-    
-    return keywords
+
+
 
 
 def close_all_connections():

@@ -1,0 +1,264 @@
+name: cg-metadata-db
+tables:
+
+  - name: files
+    description: General metadata about all files in the database.
+    primary_key:
+      - name: id
+        data_type: integer
+    columns:
+      - name: file_name
+        data_type: character_varying
+        description: Name of the file including the extension. Does not include the path.
+      - name: file_path
+        data_type: character_varying
+        description: Full path to the file.
+      - name: file_type
+        data_type: character_varying
+        description: Category the file falls into.
+        sample_values:
+          - image
+          - video
+          - blend
+      - name: extension
+        data_type: character_varying
+        description: File prefix extension.
+        sample_values:
+          - .png
+          - .jpg
+          - .blend
+          - .mp4
+      - name: file_size
+        data_type: integer
+        description: Size of the file in KB.
+      - name: created_date
+        data_type: timestamp
+        description: Date the file was created.
+      - name: modified_date
+        data_type: timestamp
+        description: Most recent date that the file was modified.
+      - name: scan_date
+        data_type: timestamp
+        description: Date that the file was scanned and put into this database.
+      - name: metadata_json
+        data_type: json
+        description: Contains the full set of information from the other columns in this table.
+      - name: error
+        data_type: text
+        description: Typically is Null, but if there was an error scanning the file, it will show here.
+      - name: metadata_embedding
+        data_type: vector
+        description: An embedding vector of the metadata for this entry. Uses the model: all-MiniLM-L6-v2 with 384 dimensions. Is used to measure the similarity of metadata between files.
+
+
+  - name: blend_files
+    description: Metadata specific to blend files. 
+    primary_key:
+      - name: id
+        data_type: integer
+        description: The id specific to the blend files in this table.
+    columns:
+      - name: file_id
+        data_type: integer
+        description: ID number of the file, relates to the ID from the "files" table.
+      - name: num_frames
+        data_type: integer
+        description: Total number of frames in the blend file.
+      - name: fps
+        data_type: integer
+        description: Frames Per Second.
+        synonyms:
+          - frame rate
+      - name: render_engine
+        data_type: character_varying
+        description: The specific render engine the blend file is set to.
+        sample_values:
+          - CYCLES
+          - EEVEE
+      - name: resolution_x
+        data_type: integer
+        description: Number of horizontal pixels the file is set to render.
+      - name: resolution_y
+        data_type: integer
+        description: Number of vertical pixels the file is set to render.
+      - name: total_objects
+        data_type: integer
+        description: Number of objects within the blend file.
+      - name: meshes
+        data_type: integer
+        description: Number of meshes within the blend file.
+      - name: cameras
+        data_type: integer
+        description: Number of cameras within the blend file.
+      - name: lights
+        data_type: integer
+        description: Number of lights within the blend file.
+      - name: empties
+        data_type: integer
+        description: Number of empties within the blend file.
+      - name: thumbnail_path
+        data_type: character_varying
+        description: File path to the thumbnail image of the contents of this blend file.
+      - name: visual_embedding
+        data_type: vector
+        description: An embedding vector of this file's thumbnail image. Uses CLIP model with 512 dimensions. Used to compare the similarity of images and to search for images using text prompts.
+
+
+  - name: images
+    description: Metadata specific to image files. 
+    primary_key:
+      - name: id
+        data_type: integer
+        description: The id specific to the images in this table.
+    columns:
+      - name: file_id
+        data_type: integer
+        description: ID number of the file, relates to the ID from the "files" table.
+      - name: width
+        data_type: integer
+        description: Number of horizontal pixels in the image.
+      - name: height
+        data_type: integer
+        description: Number of vertical pixels in the image.
+      - name: mode
+        data_type: character_varying
+        description: Color mode of the image.
+        sample_values:
+          - RGB
+          - RGMA
+      - name: thumbnail_path
+        data_type: character_varying
+        description: File path to the thumbnail image.
+      - name: visual_embedding
+        data_type: vector
+        description: An embedding vector of this file's thumbnail image. Uses CLIP model with 512 dimensions. Used to compare the similarity of images and to search for images using text prompts.
+
+
+  - name: videos
+    description: Metadata specific to video files. 
+    primary_key:
+      - name: id
+        data_type: integer
+        description: The id specific to the videos in this table.
+    columns:
+      - name: file_id
+        data_type: integer
+        description: ID number of the file, relates to the ID from the "files" table.
+      - name: width
+        data_type: integer
+        description: Number of horizontal pixels in the video.
+      - name: height
+        data_type: integer
+        description: Number of vertical pixels in the video.
+      - name: duration
+        data_type: double_precision
+        description: How long the video is in seconds.
+      - name: fps
+        data_type: double_precision
+        description: Frames per second of the video.
+      - name: codec
+        data_type: character_varying
+        description: Codec used for the video.
+        sample_values:
+          - h264
+          - mov
+      - name: bit_rate
+        data_type: integer
+        description: Amount of digital data processed per second, measured in bits per second (bps).
+      - name: thumbnail_path
+        data_type: character_varying
+        description: File path to the thumbnail image.
+      - name: visual_embedding
+        data_type: vector
+        description: An embedding vector of this file's thumbnail image. Uses CLIP model with 512 dimensions. Used to compare the similarity of images and to search for images using text prompts.
+
+
+  - name: text_files
+    description: Metadata specific to text files. 
+    primary_key:
+      - name: id
+        data_type: integer
+        description: The id specific to the files in this table.
+    columns:
+      - name: file_id
+        data_type: integer
+        description: ID number of the file, relates to the ID from the "files" table.
+
+
+  - name: unknown_files
+    description: Metadata for all other files that don't fit into the categories of image, video, blend, or text.
+    primary_key:
+      - name: id
+        data_type: integer
+        description: The id specific to the files in this table.
+    columns:
+      - name: file_id
+        data_type: integer
+        description: ID number of the file, relates to the ID from the "files" table.
+
+
+relationships:
+  - name: blend_files_to_files
+    left_table: blend_files
+    right_table: files
+    relationship_columns:
+      - left_column: file_id
+        right_column: id
+    join_type: left_outer
+    relationship_type: many_to_one
+    description: Each blend file entry references a single file in the files table
+
+  - name: images_to_files
+    left_table: images
+    right_table: files
+    relationship_columns:
+      - left_column: file_id
+        right_column: id
+    join_type: left_outer
+    relationship_type: many_to_one
+    description: Each image entry references a single file in the files table
+
+  - name: videos_to_files
+    left_table: videos
+    right_table: files
+    relationship_columns:
+      - left_column: file_id
+        right_column: id
+    join_type: left_outer
+    relationship_type: many_to_one
+    description: Each video entry references a single file in the files table
+
+  - name: text_files_to_files
+    left_table: text_files
+    right_table: files
+    relationship_columns:
+      - left_column: file_id
+        right_column: id
+    join_type: left_outer
+    relationship_type: many_to_one
+    description: Each text file entry references a single file in the files table
+
+  - name: unknown_files_to_files
+    left_table: unknown_files
+    right_table: files
+    relationship_columns:
+      - left_column: file_id
+        right_column: id
+    join_type: left_outer
+    relationship_type: many_to_one
+    description: Each unknown file entry references a single file in the files table
+
+  
+
+verified_queries:
+  - name: "Number of images in a show"
+    question: "how many images are there in the Spring show?"
+    sql: "
+SELECT
+  COUNT(*) AS image_count
+FROM
+  images i
+  JOIN files f ON i.file_id = f.id
+WHERE
+  f.file_path LIKE '%Spring%';
+"
