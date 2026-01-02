@@ -22,18 +22,27 @@ from lambda_function import lambda_handler
 app = Flask(__name__)
 CORS(app)  # Enable CORS for local testing
 
-@app.route('/chat', methods=['POST'])
-def chat():
-    """Wraper for lambda_handler"""
+@app.route('/chat', methods=['POST', 'OPTIONS'])
+@app.route('/auth', methods=['POST', 'OPTIONS'])
+@app.route('/conversations', methods=['GET', 'OPTIONS'])
+@app.route('/conversations/<conversation_id>', methods=['GET', 'DELETE', 'OPTIONS'])
+def handle_request(conversation_id=None):
+    """Handle all Lambda function routes"""
+    
+    # Handle CORS preflight
+    if request.method == 'OPTIONS':
+        return Response('', status=200)
+    
     print("\n" + "="*50)
-    print("📨 Received request from frontend")
+    print(f"📨 Received {request.method} request to {request.path}")
     
     # Construct Lambda event from Flask request
     event = {
-        'body': json.dumps(request.json),
-        'httpMethod': 'POST',
-        'path': '/chat',
+        'body': json.dumps(request.json) if request.json else None,
+        'httpMethod': request.method,
+        'path': request.path,
         'headers': dict(request.headers),
+        'pathParameters': {'id': conversation_id} if conversation_id else None,
         'requestContext': {
             'identity': {
                 'sourceIp': request.remote_addr
@@ -56,11 +65,12 @@ def chat():
             )
             
         # Handle standard JSON response
-        print("✅ Sending JSON response")
+        print(f"✅ Sending {response['statusCode']} response")
         return Response(
             response['body'],
             status=response['statusCode'],
-            content_type='application/json'
+            content_type='application/json',
+            headers=response.get('headers', {})
         )
         
     except Exception as e:

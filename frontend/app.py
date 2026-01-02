@@ -22,6 +22,8 @@ API_ENDPOINT = os.getenv("API_ENDPOINT", "https://your-api-gateway-url.amazonaws
 DEMO_EMAIL = os.getenv("DEMO_EMAIL", "demo@cgassistant.com")
 DEMO_PASSWORD = os.getenv("DEMO_PASSWORD", "DemoPass10!")
 
+print(f"Accessing API_ENDPOINT: {API_ENDPOINT}\n")
+
 # Global state
 current_token = None
 current_user_id = None
@@ -64,6 +66,16 @@ def authenticate_via_backend(email: str, password: str) -> Tuple[Optional[str], 
 
 def demo_login() -> Tuple[Optional[str], str]:
     """Quick login with demo account."""
+    # For local testing, skip actual authentication
+    global current_token, current_user_id
+    
+    if 'localhost' in API_ENDPOINT or '127.0.0.1' in API_ENDPOINT:
+        # Local testing mode - skip Cognito auth
+        current_token = 'local-test-token'
+        current_user_id = DEMO_EMAIL
+        return current_token, f"✅ Logged in as {current_user_id} (local mode)"
+    
+    # Production mode - use real Cognito auth
     token, message = authenticate_via_backend(DEMO_EMAIL, DEMO_PASSWORD)
     return token, message
 
@@ -228,16 +240,63 @@ def parse_sse_stream(response) -> Generator[Tuple[str, List[str], Optional[str]]
                 try:
                     data = json.loads(line.split(':', 1)[1].strip())
                     
-                    if current_event == 'tool_call':
-                        tool_name = data.get('tool', 'unknown')
-                        accumulated_text += f"\n\n🔧 **Using tool:** {tool_name}\n"
+                    # Handle enhanced query display
+                    if current_event == 'enhanced_query':
+                        enhanced = data.get('query', '')
+                        accumulated_text += f"\n💭 **Enhanced Query:** {enhanced}\n"
                         yield accumulated_text, thumbnail_urls, conversation_id
                     
-                    elif current_event == 'tool_result':
+                    # Handle SQL query display
+                    elif current_event == 'sql_query':
+                        sql = data.get('query', '')
+                        attempt = data.get('attempt', 1)
+                        if attempt > 1:
+                            accumulated_text += f"\n\n🔄 **SQL Query (Attempt {attempt}):**\n```sql\n{sql}\n```\n"
+                        else:
+                            accumulated_text += f"\n\n🔍 **SQL Query:**\n```sql\n{sql}\n```\n"
+                        yield accumulated_text, thumbnail_urls, conversation_id
+                    
+                    # Handle query results
+                    elif current_event == 'query_results':
                         count = data.get('count', 0)
-                        if count > 0:
-                            accumulated_text += f"Found {count} results\n"
-                            yield accumulated_text, thumbnail_urls, conversation_id
+                        attempt = data.get('attempt', 1)
+                        results = data.get('results', [])
+                        
+                        if attempt > 1:
+                            accumulated_text += f"\n📊 Attempt {attempt}: Found {count} results\n"
+                        else:
+                            accumulated_text += f"\n📊 Found {count} results\n"
+                        
+                        # Generate markdown table for results
+                        if results and len(results) > 0:
+                            # Get column names (exclude internal fields)
+                            exclude_cols = {'thumbnail_url', 'thumbnail_path'}
+                            cols = [k for k in results[0].keys() if k not in exclude_cols]
+                            
+                            # Create table
+                            accumulated_text += "\n**Results:**\n\n"
+                            accumulated_text += "| " + " | ".join(cols) + " |\n"
+                            accumulated_text += "| " + " | ".join(["---"] * len(cols)) + " |\n"
+                            
+                            for row in results:
+                                row_values = []
+                                for col in cols:
+                                    val = row.get(col, '')
+                                    if val is None:
+                                        val = ''
+                                    row_values.append(str(val).replace('|', '\\|'))
+                                accumulated_text += "| " + " | ".join(row_values) + " |\n"
+                            
+                            accumulated_text += "\n"
+                        
+                        yield accumulated_text, thumbnail_urls, conversation_id
+                    
+                    # Handle retry feedback
+                    elif current_event == 'retry_feedback':
+                        feedback = data.get('feedback', '')
+                        attempt = data.get('attempt', 1)
+                        accumulated_text += f"\n⚠️ **Retry Needed:** {feedback}\n"
+                        yield accumulated_text, thumbnail_urls, conversation_id
                     
                     elif current_event == 'thumbnail':
                         thumbnail_url = data.get('thumbnail_url')
@@ -268,7 +327,7 @@ def chat_with_backend(
     message: str,
     history: List[Dict[str, str]],
     uploaded_image: Optional[Image.Image] = None
-) -> Generator[Tuple[List[Dict[str, str]], List[str]], None, None]:
+) -> Generator[Tuple[List[Dict[str, str]], List[str], str, Optional[Image.Image]], None, None]:
     """
     Send message to backend and stream response.
     
@@ -278,12 +337,12 @@ def chat_with_backend(
         uploaded_image: Optional uploaded image for search
         
     Yields:
-        (updated_history, thumbnail_urls)
+        (updated_history, thumbnail_urls, cleared_input, cleared_image)
     """
     global current_conversation_id
     
     if not message.strip() and not uploaded_image:
-        yield history, []
+        yield history, [], "", None
         return
     
     # Prepare payload
@@ -304,6 +363,10 @@ def chat_with_backend(
     if current_token:
         headers['Authorization'] = f'Bearer {current_token}'
     
+    # Add user message to history immediately and yield to show it
+    history.append({'role': 'user', 'content': message})
+    yield history, [], "", None  # Clear inputs immediately
+    
     try:
         # Send request
         response = requests.post(
@@ -316,17 +379,14 @@ def chat_with_backend(
         
         if response.status_code != 200:
             error_msg = f"❌ Error: API returned status {response.status_code}"
-            history.append({'role': 'user', 'content': message})
             history.append({'role': 'assistant', 'content': error_msg})
-            yield history, []
+            yield history, [], "", None
             return
         
         # Stream response
         accumulated_response = ""
         thumbnail_urls = []
         
-        # Add user message to history
-        history.append({'role': 'user', 'content': message})
         # Add placeholder for assistant response
         history.append({'role': 'assistant', 'content': ''})
         
@@ -341,14 +401,14 @@ def chat_with_backend(
             # Update the last message (assistant response)
             history[-1] = {'role': 'assistant', 'content': accumulated_response}
             
-            yield history, thumbnail_urls
+            yield history, thumbnail_urls, "", None
         
     except Exception as e:
         error_msg = f"❌ Error: {str(e)}"
         if not any(msg.get('role') == 'user' and msg.get('content') == message for msg in history):
             history.append({'role': 'user', 'content': message})
         history.append({'role': 'assistant', 'content': error_msg})
-        yield history, []
+        yield history, [], "", None
 
 
 # Build Gradio UI
@@ -460,19 +520,13 @@ with gr.Blocks(title="CG Production Assistant") as demo:
     msg_input.submit(
         fn=chat_with_backend,
         inputs=[msg_input, chatbot, image_upload],
-        outputs=[chatbot, thumbnail_gallery]
-    ).then(
-        fn=lambda: ("", None),
-        outputs=[msg_input, image_upload]
+        outputs=[chatbot, thumbnail_gallery, msg_input, image_upload]
     )
     
     send_btn.click(
         fn=chat_with_backend,
         inputs=[msg_input, chatbot, image_upload],
-        outputs=[chatbot, thumbnail_gallery]
-    ).then(
-        fn=lambda: ("", None),
-        outputs=[msg_input, image_upload]
+        outputs=[chatbot, thumbnail_gallery, msg_input, image_upload]
     )
     
     clear_image_btn.click(

@@ -48,7 +48,7 @@ tables:
         description: Typically is Null, but if there was an error scanning the file, it will show here.
       - name: metadata_embedding
         data_type: vector
-        description: An embedding vector of the metadata for this entry. Uses the model: all-MiniLM-L6-v2 with 384 dimensions. Is used to measure the similarity of metadata between files.
+        description: "An embedding vector of the metadata for this entry. Uses the model: all-MiniLM-L6-v2 with 384 dimensions. Is used to measure the similarity of metadata between files."
 
 
   - name: blend_files
@@ -101,7 +101,7 @@ tables:
         description: File path to the thumbnail image of the contents of this blend file.
       - name: visual_embedding
         data_type: vector
-        description: An embedding vector of this file's thumbnail image. Uses CLIP model with 512 dimensions. Used to compare the similarity of images and to search for images using text prompts.
+        description: "An embedding vector of this file's thumbnail image. Uses CLIP model with 512 dimensions. Used to compare the similarity of images and to search for images using text prompts."
 
 
   - name: images
@@ -131,7 +131,7 @@ tables:
         description: File path to the thumbnail image.
       - name: visual_embedding
         data_type: vector
-        description: An embedding vector of this file's thumbnail image. Uses CLIP model with 512 dimensions. Used to compare the similarity of images and to search for images using text prompts.
+        description: "An embedding vector of this file's thumbnail image. Uses CLIP model with 512 dimensions. Used to compare the similarity of images and to search for images using text prompts."
 
 
   - name: videos
@@ -170,7 +170,7 @@ tables:
         description: File path to the thumbnail image.
       - name: visual_embedding
         data_type: vector
-        description: An embedding vector of this file's thumbnail image. Uses CLIP model with 512 dimensions. Used to compare the similarity of images and to search for images using text prompts.
+        description: "An embedding vector of this file's thumbnail image. Uses CLIP model with 512 dimensions. Used to compare the similarity of images and to search for images using text prompts."
 
 
   - name: text_files
@@ -251,14 +251,146 @@ relationships:
   
 
 verified_queries:
-  - name: "Number of images in a show"
-    question: "how many images are there in the Spring show?"
+  - name: "Count files in specific folder"
+    question: "How many blend files are there in the charge show?"
+    sql: "
+SELECT
+  COUNT(*) AS blend_file_count
+FROM
+  blend_files bf
+  JOIN files f ON bf.file_id = f.id
+WHERE
+  f.file_path LIKE '%charge%';
+"
+
+  - name: "Semantic search for character images"
+    question: "Find images of the autumn character"
+    notes: "This requires generating a text embedding first, then using the <=> operator for similarity"
+    sql: "
+-- First generate text embedding for 'autumn character' using generate_text_embedding()
+-- Then use the embedding in this query:
+SELECT
+  f.id,
+  f.file_name,
+  f.file_path,
+  f.file_type,
+  img.width,
+  img.height,
+  img.thumbnail_path,
+  1 - (f.metadata_embedding <=> '[EMBEDDING_VECTOR]'::vector) AS similarity
+FROM
+  files f
+  JOIN images img ON f.id = img.file_id
+WHERE
+  f.metadata_embedding IS NOT NULL
+  AND f.file_type = 'image'
+ORDER BY
+  f.metadata_embedding <=> '[EMBEDDING_VECTOR]'::vector
+LIMIT 10;
+"
+
+  - name: "Visual similarity search with uploaded image"
+    question: "What blend file has this character?"
+    notes: "User uploaded an image. Generate visual embedding using generate_image_embedding_from_base64(), then search blend files"
+    sql: "
+-- First generate visual embedding from uploaded image
+-- Then search blend_files with visual_embedding column:
+SELECT
+  f.id,
+  f.file_name,
+  f.file_path,
+  bf.resolution_x,
+  bf.resolution_y,
+  bf.render_engine,
+  bf.thumbnail_path,
+  1 - (bf.visual_embedding <=> '[EMBEDDING_VECTOR]'::vector) AS similarity
+FROM
+  files f
+  JOIN blend_files bf ON f.id = bf.file_id
+WHERE
+  bf.visual_embedding IS NOT NULL
+ORDER BY
+  bf.visual_embedding <=> '[EMBEDDING_VECTOR]'::vector
+LIMIT 10;
+"
+
+  - name: "Filter by resolution (4K renders)"
+    question: "Find 4K renders"
+    notes: "4K resolution is typically 3840x2160 or higher"
+    sql: "
+SELECT
+  f.id,
+  f.file_name,
+  f.file_path,
+  f.file_type,
+  img.width,
+  img.height,
+  img.thumbnail_path
+FROM
+  files f
+  JOIN images img ON f.id = img.file_id
+WHERE
+  img.width >= 3840
+  AND img.height >= 2160
+ORDER BY
+  f.modified_date DESC
+LIMIT 10;
+"
+
+  - name: "Files from specific show"
+    question: "Show images from the Spring show"
+    sql: "
+SELECT
+  f.id,
+  f.file_name,
+  f.file_path,
+  f.file_type,
+  img.width,
+  img.height,
+  img.thumbnail_path
+FROM
+  files f
+  JOIN images img ON f.id = img.file_id
+WHERE
+  f.file_path LIKE '%Spring%'
+  AND f.file_type = 'image'
+ORDER BY
+  f.modified_date DESC
+LIMIT 20;
+"
+
+  - name: "Database statistics"
+    question: "How many images are in the database?"
     sql: "
 SELECT
   COUNT(*) AS image_count
 FROM
-  images i
-  JOIN files f ON i.file_id = f.id
-WHERE
-  f.file_path LIKE '%Spring%';
+  images;
 "
+
+  - name: "Visual search across all file types"
+    question: "Find videos that look like a sunset"
+    notes: "Generate visual embedding from text 'sunset' using generate_image_embedding_from_text()"
+    sql: "
+-- First generate CLIP embedding from text description
+-- Then search videos table:
+SELECT
+  f.id,
+  f.file_name,
+  f.file_path,
+  f.file_type,
+  vid.width,
+  vid.height,
+  vid.duration,
+  vid.thumbnail_path,
+  1 - (vid.visual_embedding <=> '[EMBEDDING_VECTOR]'::vector) AS similarity
+FROM
+  files f
+  JOIN videos vid ON f.id = vid.file_id
+WHERE
+  vid.visual_embedding IS NOT NULL
+ORDER BY
+  vid.visual_embedding <=> '[EMBEDDING_VECTOR]'::vector
+LIMIT 10;
+"
+
