@@ -7,16 +7,16 @@ import logging
 import time
 from typing import List, Dict, Any
 from langchain.tools import tool
+from psycopg2.extras import RealDictCursor
+
 from src.services.database import (
     search_by_text_embedding,
     search_by_image_embedding,
-    keyword_search,
     get_database_stats,
     get_connection,
     release_connection
 )
 from src.services.embeddings import generate_text_embedding, generate_image_embedding_from_base64
-from psycopg2.extras import RealDictCursor
 
 logger = logging.getLogger()
 
@@ -182,33 +182,7 @@ def search_by_uploaded_image(image_base64: str, limit: int = 10) -> List[Dict[st
         return []
 
 
-@tool
-def keyword_search_tool(query: str, limit: int = 10) -> List[Dict[str, Any]]:
-    """Traditional keyword-based search (fallback).
-    
-    Use this tool when semantic search fails or for exact filename/path matches.
-    Searches file names, paths, and metadata fields.
-    
-    Args:
-        query: Keywords to search for
-        limit: Maximum number of results to return (default: 10)
-        
-    Returns:
-        List of matching files with thumbnail URLs
-        
-    Example queries:
-        - "character_model_v2.blend"
-        - "renders/final/"
-    """
-    try:
-        results = keyword_search(query, limit)
-        
-        logger.info(f"keyword_search_tool returned {len(results)} results for: {query}")
-        return results
-        
-    except Exception as e:
-        logger.error(f"Error in keyword_search_tool: {str(e)}", exc_info=True)
-        return []
+
 
 
 @tool
@@ -383,7 +357,6 @@ AVAILABLE_TOOLS = [
     search_by_metadata_embedding,
     search_by_visual_embedding,
     search_by_uploaded_image,
-    keyword_search_tool,
     analytics_query,
     filter_by_metadata,
     get_file_details

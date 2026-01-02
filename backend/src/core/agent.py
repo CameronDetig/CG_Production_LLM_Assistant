@@ -10,6 +10,8 @@ from typing import List, Dict, Any, Optional, TypedDict, Annotated
 import operator
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
+
+# Import services
 from src.services.bedrock_client import invoke_bedrock_for_reasoning, stream_bedrock_response
 from src.core.tools import AVAILABLE_TOOLS
 
@@ -29,7 +31,7 @@ class AgentState(TypedDict):
 
 
 # Maximum iterations to prevent infinite loops
-MAX_ITERATIONS = 5
+MAX_ITERATIONS = 3
 
 
 def create_react_agent() -> StateGraph:
@@ -242,19 +244,15 @@ Available Tools:
    - Find similar images to an uploaded image
    - Use for: reverse image search
    
-4. keyword_search_tool(query: str, limit: int = 10)
-   - Traditional keyword search on filenames and paths
-   - Use for: exact filename matches
-   
-5. analytics_query()
+4. analytics_query()
    - Get database statistics and counts
    - Use for: "how many files", "statistics", "totals"
    
-6. filter_by_metadata(file_type: str, min_resolution_x: int, min_resolution_y: int, extension: str, limit: int = 10)
+5. filter_by_metadata(file_type: str, min_resolution_x: int, min_resolution_y: int, extension: str, limit: int = 10)
    - Filter files by specific criteria
    - Use for: "4K renders", "blend files", "PNG images"
    
-7. get_file_details(file_id: int)
+6. get_file_details(file_id: int)
    - Get detailed info about a specific file
    - Use for: "tell me about file 123"
 """
@@ -437,6 +435,7 @@ def run_agent(
     Returns:
         Dict with final_answer and tool_results
     """
+
     # Initialize state
     initial_state = AgentState(
         messages=[HumanMessage(content=query)],
@@ -451,6 +450,10 @@ def run_agent(
     
     # Create and run agent
     agent = create_react_agent()
+
+    # print a ascii graph of the agent
+    print(agent.get_graph().draw_ascii())
+
     final_state = agent.invoke(initial_state)
     
     return {
