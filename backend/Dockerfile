@@ -20,15 +20,19 @@ RUN apt-get update && apt-get install -y \
 # Create a directory for dependencies
 WORKDIR /install
 
-# Copy requirements and install to a target directory
-COPY requirements.txt .
+# Install huggingface_hub explicitly first to enable model downloading
+# This allows us to cache the model download layer even if requirements.txt changes
 RUN pip install --upgrade pip && \
-    pip install -r requirements.txt --target /install --no-cache-dir
+    pip install huggingface_hub --target /install --no-cache-dir
 
-# Pre-download HuggingFace models so they're bundled in the image
-# This is critical for Lambda in VPC which has no internet access
+# Pre-download HuggingFace models
+# This layer will now only invalidate if download_models.py changes
 COPY src/core/download_models.py .
 RUN PYTHONPATH=/install python download_models.py
+
+# Copy requirements and install the rest of the dependencies
+COPY requirements.txt .
+RUN pip install -r requirements.txt --target /install --no-cache-dir
 
 # Stage 2: Copy to Lambda base image
 FROM public.ecr.aws/lambda/python:3.11
