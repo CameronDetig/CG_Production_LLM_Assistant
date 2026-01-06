@@ -1,5 +1,5 @@
 # Gradio frontend for Hugging Face Spaces
-gradio>=4.0.0
-requests>=2.31.0
-pillow>=10.0.0
-python-dotenv>=1.0.0
+gradio==6.2.0
+requests==2.32.3
+pillow==11.0.0
+python-dotenv==1.0.1

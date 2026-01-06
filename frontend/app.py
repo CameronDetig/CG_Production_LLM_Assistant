@@ -13,6 +13,10 @@ from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
+
+# DEBUG: Print Gradio version to logs
+print(f"🚀 Running with Gradio version: {gr.__version__}")
+
 from typing import Generator, List, Tuple, Optional, Dict, Any
 from PIL import Image
 from io import BytesIO
@@ -59,6 +63,46 @@ def authenticate_via_backend(email: str, password: str) -> Tuple[Optional[str], 
             return None, "❌ Invalid email or password"
         else:
             return None, f"❌ Authentication error: {response.status_code}"
+            
+    except Exception as e:
+        return None, f"❌ Error: {str(e)}"
+
+
+def signup_via_backend(email: str, password: str) -> Tuple[Optional[str], str]:
+    """
+    Create a new user account via backend /signup endpoint.
+    
+    Returns:
+        (id_token, message)
+    """
+    global current_token, current_user_id
+    
+    try:
+        response = requests.post(
+            f"{API_ENDPOINT}/signup",
+            json={
+                'email': email,
+                'password': password
+            },
+            timeout=120
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            # Auto-login after successful signup
+            current_token = data.get('id_token')
+            current_user_id = data.get('user_id', email)
+            
+            if current_token:
+                return current_token, f"✅ Account created and logged in as {current_user_id}"
+            else:
+                return None, f"✅ Account created! Please log in with your credentials."
+        elif response.status_code == 400:
+            error_data = response.json()
+            error_msg = error_data.get('error', 'Invalid request')
+            return None, f"❌ {error_msg}"
+        else:
+            return None, f"❌ Signup error: {response.status_code}"
             
     except Exception as e:
         return None, f"❌ Error: {str(e)}"
@@ -422,15 +466,26 @@ with gr.Blocks(title="CG Production Assistant") as demo:
             gr.Markdown("### 🔐 Authentication")
             
             # Collapsible authentication section
-            with gr.Accordion("Login Options", open=False):
-                with gr.Group():
-                    email_input = gr.Textbox(label="Email", placeholder="your-email@example.com")
-                    password_input = gr.Textbox(label="Password", type="password")
+            with gr.Accordion("Login / Signup Options", open=False):
+                with gr.Tabs():
+                    with gr.Tab("Login"):
+                        with gr.Group():
+                            login_email_input = gr.Textbox(label="Email", placeholder="your-email@example.com")
+                            login_password_input = gr.Textbox(label="Password", type="password")
+                            login_btn = gr.Button("Login", variant="primary")
                     
-                    with gr.Row():
-                        login_btn = gr.Button("Login", variant="primary")
-                    
-                    logout_btn = gr.Button("Logout")
+                    with gr.Tab("Sign Up"):
+                        with gr.Group():
+                            signup_email_input = gr.Textbox(label="Email", placeholder="your-email@example.com")
+                            signup_password_input = gr.Textbox(
+                                label="Password", 
+                                type="password",
+                                placeholder="Min 8 chars, 1 uppercase, 1 lowercase, 1 number, 1 special char"
+                            )
+                            signup_confirm_password = gr.Textbox(label="Confirm Password", type="password")
+                            signup_btn = gr.Button("Create Account", variant="primary")
+                
+                logout_btn = gr.Button("Logout")
             
             auth_status = gr.Textbox(
                 label="Authorization Status", 
@@ -482,11 +537,33 @@ with gr.Blocks(title="CG Production Assistant") as demo:
                 height=300
             )
     
+    # Helper function for signup with password confirmation
+    def signup_with_confirmation(email: str, password: str, confirm_password: str) -> Tuple[Optional[str], str]:
+        if not email or not password:
+            return None, "❌ Email and password are required"
+        if password != confirm_password:
+            return None, "❌ Passwords do not match"
+        if len(password) < 8:
+            return None, "❌ Password must be at least 8 characters"
+        return signup_via_backend(email, password)
+    
     # Event handlers
     login_btn.click(
         fn=authenticate_via_backend,
-        inputs=[email_input, password_input],
+        inputs=[login_email_input, login_password_input],
         outputs=[gr.State(), auth_status]
+    ).then(
+        fn=load_conversations,
+        outputs=conversations_list
+    )
+    
+    signup_btn.click(
+        fn=signup_with_confirmation,
+        inputs=[signup_email_input, signup_password_input, signup_confirm_password],
+        outputs=[gr.State(), auth_status]
+    ).then(
+        fn=load_conversations,
+        outputs=conversations_list
     )
     
     logout_btn.click(
@@ -547,6 +624,5 @@ if __name__ == "__main__":
     demo.launch(
         server_name="0.0.0.0",
         server_port=7860,
-        share=False,
-        theme=gr.themes.Ocean()
+        share=False
     )

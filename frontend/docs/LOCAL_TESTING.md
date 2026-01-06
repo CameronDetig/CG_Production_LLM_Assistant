@@ -1,27 +1,28 @@
 # Local Testing Guide
 
-### Terminal 1: Local Backend
-
-```bash
-cd frontend
-python start_backend.py
-```
-
-You should see:
-```
-✅ Database connected: PostgreSQL 16.11 ...
-✅ Bedrock connected: us.meta.llama3-2-11b-instruct-v1:0
-✅ Semantic search working: 5 results
-
-Starting Flask server...
-API endpoint: http://localhost:8000/chat
-```
-
-### Terminal 2: Gradio App
+### 1. Run the Frontend
 
 ```bash
 cd frontend
 python app.py
+```
+
+The app will start at **http://localhost:7860**.
+
+### 2. Connect to Backend
+
+The frontend needs to connect to the backend API. Ideally, you should connect to your deployed **AWS Lambda** backend.
+
+**Option A: Connect to AWS Backend (Recommended)**
+Ensure your `.env` file points to your Lambda URL:
+```env
+API_ENDPOINT=https://fhvltd2p33ejzyk5l5tgxyz4340qrghe.lambda-url.us-east-1.on.aws
+```
+
+**Option B: Connect to Local Backend (Advanced)**
+If you are running the backend code locally (requires complex setup), point to localhost:
+```env
+API_ENDPOINT=http://localhost:8000/chat
 ```
 
 Open **http://localhost:7860** in your browser.
