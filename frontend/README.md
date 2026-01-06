@@ -1,133 +1,74 @@
-# CG Production LLM Assistant - Frontend
+---
+title: CG Production Assistant - Blender Studio Assets
+emoji: 🔥
+colorFrom: blue
+colorTo: purple
+sdk: gradio
+sdk_version: 6.2.0
+app_file: app.py
+pinned: false
+license: mit
+short_description: Assistant for asking questions about Blender Studio's assets
+---
 
-Gradio-based chat interface for the CG Production LLM Assistant.
+# CG Production Assistant
 
-## 🚀 Quick Start
+An AI-powered assistant for querying metadata from Blender Studio's short films. Ask questions about assets, search by image, and explore the production database.
 
-### Local Testing (Recommended)
+This space is not affiliated with Blender Studio. All assets are created by Blender Studio and available under the Creative Commons Attribution 4.0 International license.
 
-```bash
-cd frontend
-python start_backend.py  # Terminal 1
-python app.py            # Terminal 2
+## Development
+
+Built as part of a CG Production Assistant system. See the [full repository](https://github.com/YOUR_USERNAME/CG_Production_LLM_Assistant) for:
+- Metadata extraction pipeline
+- Database schema
+- Backend deployment guides
+- Local development setup
+
+## Features
+
+- 💬 **Natural Language Queries**: Ask questions in plain English about the database
+- 🖼️ **Image Search**: Upload images to find visually similar assets
+- 🔍 **SQL Transparency**: See the generated SQL queries and results
+- 💾 **Conversation History**: Save and resume conversations
+- 🔐 **Demo Mode**: Auto-login with demo account, or create your own
+
+## Demo Account
+
+By default, the app uses a demo account for quick access. If you want to be able to save and resume conversations, you can create your own account:
+1. Expand the "Login / Signup Options" section
+2. Create your own account
+3. Login with your credentials
+
+## Tech Stack
+
+- **Frontend**: Gradio
+- **Backend**: AWS Lambda + PostgreSQL + pgvector
+- **LLM**: AWS Bedrock (Llama 3.3 70B)
+- **Database**: PostgreSQL with pgvector for embeddings
+
+## Architecture
+
 ```
-
-Open http://localhost:7860 in your browser!
-
-See [LOCAL_TESTING.md](LOCAL_TESTING.md) for detailed instructions.
-
----
-
-## 📋 Features
-
-- 💬 **Chat Interface** - Clean Gradio UI for natural conversations
-- 🌊 **Streaming Responses** - Real-time token streaming from Bedrock
-- 🔍 **Semantic Search** - CLIP and text embeddings for intelligent file discovery
-- 🗄️ **Real Database** - Queries actual PostgreSQL database with production data
-- 🤖 **AWS Bedrock** - Powered by Llama 3.2 11B Instruct
-- 🚀 **Easy AWS Transition** - Local backend wraps Lambda code for seamless deployment
-
----
-
-## 📁 Files
-
-| File | Purpose |
-|------|---------|
-| `app.py` | Gradio frontend application |
-| `local_backend.py` | Flask server that wraps Lambda handler |
-| `start_backend.py` | Startup script with environment setup |
-| `requirements.txt` | Python dependencies |
-| `.env.example` | Environment variables template |
-| `QUICKSTART.md` | Quick reference guide |
-| `LOCAL_TESTING.md` | Detailed testing instructions |
-
----
-
-## 🔧 Configuration
-
-Create `.env` file:
-
-```env
-# Backend API endpoint
-API_ENDPOINT=http://localhost:8000/chat
-
-# Database configuration
-DB_HOST=localhost
-DB_NAME=cg_metadata
-DB_USER=cguser
-DB_PASSWORD=cgpass
-
-# AWS Bedrock
-AWS_REGION=us-east-1
-BEDROCK_MODEL_ID=us.meta.llama3-2-11b-instruct-v1:0
+┌─────────────────────┐
+│  Hugging Face Space │
+│   (Gradio Frontend) │
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│   AWS API Gateway   │
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│    AWS Lambda       │
+│  (LangGraph Agent)  │
+└──────────┬──────────┘
+           │
+           ▼
+┌─────────────────────┐
+│  PostgreSQL + RDS   │
+│   (Vector Search)   │
+└─────────────────────┘
 ```
-
----
-
-## 🏗️ Architecture
-
-### Local Development
-```
-Gradio UI → local_backend.py (Flask)
-              ↓
-         Lambda Handler (wrapped)
-              ↓
-         PostgreSQL + Bedrock
-```
-
-### AWS Deployment
-```
-Gradio UI → API Gateway → Lambda
-                           ↓
-                    PostgreSQL + Bedrock
-```
-
-**Key Design:** The local backend wraps the Lambda handler, ensuring **100% code compatibility** between local and AWS deployments.
-
----
-
-## 🚢 Deploying to AWS
-
-When ready to deploy:
-
-1. **Deploy Lambda function** (use `backend/` code)
-2. **Update `.env`:**
-   ```env
-   API_ENDPOINT=https://your-api-id.execute-api.us-east-1.amazonaws.com/prod/chat
-   ```
-3. **No code changes needed!**
-
-The local backend uses the exact same Lambda code, so what works locally will work in AWS.
-
----
-
-## 🎨 Deploying to Hugging Face Spaces
-
-1. Create Space at https://huggingface.co/spaces
-2. Upload: `app.py`, `requirements.txt`
-3. Add secret: `API_ENDPOINT` = your Lambda URL
-4. Done! Space auto-deploys
-
----
-
-## 📚 Documentation
-
-- [QUICKSTART.md](QUICKSTART.md) - Quick reference guide
-- [LOCAL_TESTING.md](LOCAL_TESTING.md) - Detailed testing instructions
-- [../backend/README.md](../backend/README.md) - Backend/Lambda documentation
-
----
-
-## 💡 Example Queries
-
-- "Find 4K resolution Blender files"
-- "List all video files with their durations"
-- "What files were modified this week?"
-- "Show me files with dark moody lighting"
-- "Where are the files for the autumn character located?"
-
----
-
-## 🔍 Troubleshooting
-
-See [LOCAL_TESTING.md](LOCAL_TESTING.md#troubleshooting) for common issues and solutions.

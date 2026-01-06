@@ -11,97 +11,72 @@ This guide walks you through deploying the CG Production LLM Assistant frontend 
 - API Gateway endpoint URL
 - Cognito demo account credentials
 
-## Step 1: Create a New Space
+## Automated Deployment (Recommended)
 
-1. Go to [Hugging Face Spaces](https://huggingface.co/spaces)
-2. Click "Create new Space"
-3. Configure:
-   - **Owner**: Your username or organization
-   - **Space name**: `cg-production-assistant` (or your preferred name)
-   - **License**: Apache 2.0 (or your choice)
-   - **SDK**: Gradio
-   - **Visibility**: Public or Private
+The easiest way to deploy is using the included script.
 
-## Step 2: Clone the Space Repository
-
+### 1. Set your Hugging Face Username
 ```bash
-git clone https://huggingface.co/spaces/YOUR_USERNAME/cg-production-assistant
-cd cg-production-assistant
+export HF_USERNAME=your-username
 ```
 
-## Step 3: Copy Frontend Files
-
+### 2. Run Deployment Script
 ```bash
-# Copy app.py and requirements.txt
-cp ../frontend/app.py .
-cp ../frontend/requirements.txt .
+cd frontend
+./deploy_to_hf.sh
 ```
 
-## Step 4: Create README.md
+This script will:
+- Initialize the git repository
+- Configure the HF remote
+- Push only the necessary files (`app.py`, `requirements.txt`, `README.md`)
+- Force push to ensure a clean state
 
-Create a `README.md` file for your Space:
+### 3. Configure Secrets
+After deployment, go to your Space Settings > Repository Secrets and add:
+- `API_ENDPOINT`: Your Lambda URL
+- `DEMO_EMAIL`: `demo@cgassistant.com`
+- `DEMO_PASSWORD`: `DemoPass10!`
 
-```markdown
----
-title: CG Production Assistant
-emoji: 🎬
-colorFrom: blue
-colorTo: purple
-sdk: gradio
-sdk_version: 4.0.0
-app_file: app.py
-pinned: false
----
+## Manual Deployment
 
-# CG Production LLM Assistant
+If you prefer to deploy manually:
 
-AI-powered search for CG production assets with conversation memory.
+1. **Clone the Space:**
+   ```bash
+   git clone https://huggingface.co/spaces/YOUR_USERNAME/cg-production-assistant
+   cd cg-production-assistant
+   ```
 
-## Features
+2. **Copy Files:**
+   ```bash
+   cp ../frontend/app.py .
+   cp ../frontend/requirements.txt .
+   cp ../frontend/.gitignore .
+   ```
 
-- 🔍 Semantic search across Blender files, images, and videos
-- 🖼️ Visual search with image upload
-- 💬 Conversation history and management
-- 🔐 User authentication with demo account
+3. **Create README.md:**
+   Ensure it has the correct YAML frontmatter:
+   ```yaml
+   ---
+   title: CG Production Assistant
+   emoji: 🎬
+   colorFrom: blue
+   colorTo: purple
+   sdk: gradio
+   sdk_version: 6.2.0
+   app_file: app.py
+   pinned: false
+   license: mit
+   ---
+   ```
 
-## Usage
-
-1. The app auto-logs in with a demo account
-2. Ask questions about your CG assets
-3. Upload images for visual similarity search
-4. Optionally create your own account for private conversations
-
-## Tech Stack
-
-- **Frontend**: Gradio (Hugging Face Spaces)
-- **Backend**: AWS Lambda + API Gateway
-- **Database**: PostgreSQL (AWS RDS)
-- **AI Models**: AWS Bedrock (Llama 3.2)
-- **Authentication**: AWS Cognito
-```
-
-## Step 5: Configure Secrets
-
-In your Space settings, add the following secrets:
-
-1. Go to **Settings** > **Repository secrets**
-2. Add these secrets:
-
-| Secret Name | Value | Description |
-|------------|-------|-------------|
-| `API_ENDPOINT` | `https://your-api-id.execute-api.us-east-1.amazonaws.com/prod` | Your AWS API Gateway endpoint |
-| `DEMO_EMAIL` | `demo@cgassistant.com` | Demo account email |
-| `DEMO_PASSWORD` | `DemoPass10!` | Demo account password |
-
-> **Important**: Do NOT include `/chat` in the API_ENDPOINT - it will be appended automatically
-
-## Step 6: Push to Hugging Face
-
-```bash
-git add .
-git commit -m "Initial deployment"
-git push
-```
+4. **Push:**
+   ```bash
+   git add .
+   git commit -m "Deploy"
+   git push
+   ```
 
 ## Step 7: Verify Deployment
 

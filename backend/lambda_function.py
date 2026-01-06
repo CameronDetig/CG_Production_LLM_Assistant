@@ -82,6 +82,7 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     Supports multiple endpoints:
     - POST /chat - Main chat endpoint with agent
     - POST /auth - Authenticate user with Cognito
+    - POST /signup - Create new user account
     - GET /conversations - List user's conversations
     - GET /conversations/{id} - Get specific conversation
     - DELETE /conversations/{id} - Delete conversation
@@ -115,6 +116,8 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             return handle_chat(event, context)
         elif path == '/auth' and http_method == 'POST':
             return handle_auth(event, context)
+        elif path == '/signup' and http_method == 'POST':
+            return handle_signup(event, context)
         elif path == '/conversations' and http_method == 'GET':
             return handle_list_conversations(event, context)
         elif path.startswith('/conversations/') and http_method == 'GET':
@@ -547,6 +550,103 @@ def handle_auth(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             'statusCode': 500,
             'headers': get_cors_headers(),
             'body': json.dumps({'error': 'Authentication service error'})
+        }
+
+
+def handle_signup(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
+    """
+    Handle POST /signup - create new user account in Cognito.
+    """
+    try:
+        # Parse request body
+        body_str = event.get('body', '{}')
+        
+        # Handle base64 encoding
+        if event.get('isBase64Encoded', False) and isinstance(body_str, str):
+            import base64
+            try:
+                body_str = base64.b64decode(body_str).decode('utf-8')
+            except Exception as e:
+                logger.error(f"Base64 decode error: {e}")
+        
+        # Parse JSON
+        try:
+            if isinstance(body_str, str):
+                body = json.loads(body_str.strip())
+            elif isinstance(body_str, dict):
+                body = body_str
+            else:
+                return {
+                    'statusCode': 400,
+                    'headers': get_cors_headers(),
+                    'body': json.dumps({'error': 'Invalid request body format'})
+                }
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error: {e}")
+            return {
+                'statusCode': 400,
+                'headers': get_cors_headers(),
+                'body': json.dumps({'error': f'Invalid JSON: {str(e)}'})
+            }
+        
+        # Extract credentials
+        email = body.get('email')
+        password = body.get('password')
+        
+        if not email or not password:
+            return {
+                'statusCode': 400,
+                'headers': get_cors_headers(),
+                'body': json.dumps({'error': 'Email and password are required'})
+            }
+        
+        logger.info(f"Signup attempt for user: {email}")
+        
+        # Create user in Cognito
+        from src.auth.cognito import signup_user
+        result = signup_user(email, password)
+        
+        if result['success']:
+            logger.info(f"Signup successful for user: {email}")
+            
+            # If user is auto-confirmed and we have tokens, return them
+            if result.get('user_confirmed') and result.get('tokens'):
+                return {
+                    'statusCode': 200,
+                    'headers': get_cors_headers(),
+                    'body': json.dumps({
+                        'message': result['message'],
+                        'user_confirmed': True,
+                        'id_token': result['tokens']['id_token'],
+                        'access_token': result['tokens']['access_token'],
+                        'refresh_token': result['tokens']['refresh_token'],
+                        'user_id': email
+                    })
+                }
+            else:
+                # User needs to confirm email
+                return {
+                    'statusCode': 200,
+                    'headers': get_cors_headers(),
+                    'body': json.dumps({
+                        'message': result['message'],
+                        'user_confirmed': False
+                    })
+                }
+        else:
+            logger.warning(f"Signup failed for user: {email} - {result['message']}")
+            return {
+                'statusCode': 400,
+                'headers': get_cors_headers(),
+                'body': json.dumps({'error': result['message']})
+            }
+        
+    except Exception as e:
+        logger.error(f"Error in handle_signup: {str(e)}", exc_info=True)
+        return {
+            'statusCode': 500,
+            'headers': get_cors_headers(),
+            'body': json.dumps({'error': 'Signup service error'})
         }
 
 

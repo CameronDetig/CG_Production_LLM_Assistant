@@ -1,69 +1,100 @@
-# Quick Start Guide - Testing the Frontend
+# CG Production LLM Assistant - Frontend Quick Start
 
-## Issue
+This guide covers everything you need to run, configure, and deploy the CG Production Assistant frontend.
 
-The app is trying to connect to a placeholder API endpoint. You need to configure your actual Lambda API Gateway URL.
+## 📋 Overview
 
-## Solution 1: Set Environment Variable (Quick Test)
+The Frontend is a Gradio-based chat interface that connects to an AWS Lambda backend. It features:
+- 💬 **Chat Interface**: Natural language queries about your assets
+- 🌊 **Streaming Responses**: Real-time token streaming
+- 🔍 **Visual Search**: Upload images to find similar assets
+- 🔐 **Authentication**: AWS Cognito integration (Demo + Custom accounts)
 
-In PowerShell:
-```powershell
-$env:API_ENDPOINT = "https://YOUR-API-ID.execute-api.us-east-1.amazonaws.com/prod"
-$env:DEMO_EMAIL = "demo@cgassistant.com"
-$env:DEMO_PASSWORD = "DemoPass10!"
+## 🚀 Prerequisites
 
-python app.py
+1. **Python 3.10+** installed
+2. **AWS Lambda Backend** deployed (URL needed)
+3. **Cognito User Pool** (optional, for custom accounts)
+
+## 💻 Local Setup
+
+### 1. Install Dependencies
+
+```bash
+cd frontend
+pip install -r requirements.txt
 ```
 
-## Solution 2: Create .env File (Recommended)
+### 2. Configure Environment
 
-Create `frontend/.env` file:
+Create a `.env` file in the `frontend/` directory (or assume defaults for testing). 
+
+**Recommended `.env` configuration:**
+
 ```env
-API_ENDPOINT=https://YOUR-API-ID.execute-api.us-east-1.amazonaws.com/prod
+# Backend API Endpoint (Required for chat)
+# Replace with your actual Lambda Function URL or API Gateway endpoint
+API_ENDPOINT=https://fhvltd2p33ejzyk5l5tgxyz4340qrghe.lambda-url.us-east-1.on.aws
+
+# Demo Account (Optional - defaults are built-in)
 DEMO_EMAIL=demo@cgassistant.com
 DEMO_PASSWORD=DemoPass10!
+
+# Optional: AWS Configuration (only if running local backend)
+AWS_REGION=us-east-1
 ```
 
-Then install python-dotenv and run:
-```powershell
-pip install python-dotenv
+### 3. Run the App
+
+```bash
 python app.py
 ```
 
-## Finding Your API Gateway URL
+Open **http://localhost:7860** in your browser.
 
-1. Go to AWS Console > API Gateway
-2. Find your API (probably named something like "cg-chatbot-api")
-3. Click on "Stages" > "prod"
-4. Copy the "Invoke URL" at the top
+## ✨ Features Breakdown
 
-It should look like: `https://abc123xyz.execute-api.us-east-1.amazonaws.com/prod`
+### Authentication
+- **Demo Login**: Click "Login" on the sidebar for instant access.
+- **Sign Up**: Create a new account (requires backend configuration).
+- **Auto-Login**: App attempts to auto-login the demo user on load.
 
-## Testing Without Backend (Optional)
+### Chat & Search
+- **Text Queries**: "Find assets with dark lighting"
+- **Image Upload**: Drag & drop an image to find visually similar assets.
+- **History**: View and load past conversations from the sidebar.
 
-If you want to test the UI without the backend, you can temporarily modify line 17 in `app.py`:
+## 🚢 Deployment
 
-```python
-# Comment out the real endpoint
-# API_ENDPOINT = os.getenv("API_ENDPOINT", "https://your-api-gateway-url.amazonaws.com/prod")
+### Hugging Face Spaces
 
-# Use a mock endpoint for UI testing
-API_ENDPOINT = "http://localhost:8000"  # Will fail gracefully
-```
+Use the `deploy_to_hf.sh` script to deploy to Hugging Face Spaces.
 
-This will let you see the UI, but authentication and chat won't work.
+1. **Set your HF Username:**
+   ```bash
+   export HF_USERNAME=your-username
+   ```
 
-## Current Status
+2. **Run Deployment Script:**
+   ```bash
+   ./deploy_to_hf.sh
+   ```
 
-✅ Gradio 6.0 compatibility fixed
-✅ Chat format updated to message dictionaries
-✅ Auto-login function fixed
-❌ Need to configure API_ENDPOINT
+3. **Configure Secrets:**
+   Go to your Space Settings > Repository Secrets and add:
+   - `API_ENDPOINT`: Your Lambda URL
+   - `DEMO_EMAIL`: `demo@cgassistant.com`
+   - `DEMO_PASSWORD`: `DemoPass10!`
 
-## Next Steps
+See [HUGGINGFACE_DEPLOYMENT.md](HUGGINGFACE_DEPLOYMENT.md) for details.
 
-1. Find your API Gateway URL (see above)
-2. Set the environment variable OR create .env file
-3. Run `python app.py`
-4. Open http://localhost:7860
-5. Verify auto-login works
+## 🔧 Troubleshooting
+
+### "Authentication required" error
+- **Solution**: Ensure you are logged in. Check if `API_ENDPOINT` is correct in `.env`.
+
+### Connection Errors
+- **Solution**: Verify your Lambda function URL is active and accessible.
+
+### Gradio Version Issues
+- **Solution**: This app is optimized for Gradio 6.2.0+. Ensure `requirements.txt` is installed.
