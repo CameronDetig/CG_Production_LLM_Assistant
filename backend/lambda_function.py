@@ -19,7 +19,7 @@ from src.services.conversations import (
     generate_title_from_query
 )
 from src.core.chat_agent import run_chat_agent
-from src.services.bedrock_client import stream_bedrock_response
+from src.services.bedrock_client import invoke_bedrock
 
 # Configure logging
 logger = logging.getLogger()
@@ -52,7 +52,6 @@ def make_json_serializable(obj: Any) -> Any:
     if isinstance(obj, list):
         return [make_json_serializable(i) for i in obj]
     return obj
-
 
 
 def sanitize_for_json(obj: Any) -> Any:
@@ -283,7 +282,7 @@ def handle_chat(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                 if full_response and full_response.startswith('<|begin_of_text|>'):
                     # It's a prompt, stream from Bedrock
                     streamed_response = ""
-                    for chunk in stream_bedrock_response(full_response):
+                    for chunk in invoke_bedrock(full_response, streaming=True):
                         streamed_response += chunk
                         yield format_sse_event('answer_chunk', {'text': chunk})
                     full_response = streamed_response

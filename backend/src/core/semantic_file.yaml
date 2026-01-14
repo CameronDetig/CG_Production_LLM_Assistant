@@ -1,5 +1,56 @@
 name: cg-metadata-db
+
+custom_instructions:
+  - "Unless the user specifically asks to view the metadata or visual embedding, do not return them in your SQL query."
+  - "Show names should always be lowercase and use underscores instead of spaces."
+
 tables:
+  - name: shows
+    description: Show/Production metadata table
+    primary_key:
+      - name: name
+        data_type: character_varying(255)
+        description: Primary key - matches the show name extracted from file paths
+        sample_values:
+          - singularity
+          - wing_it
+          - charge
+          - sprite_fright
+          - coffee_run
+          - spring
+          - hero
+          - the_daily_dweebs
+          - agent_327
+          - caminandes_llamigos
+          - glass_half
+          - cosmos_laundromat
+          - caminandes_gran_dillama
+          - tears_of_steel
+          - sintel
+          - big_buck_bunny
+          - elephants_dream
+    columns:
+      - name: release_date
+        data_type: timestamp
+        description: Release date of the show
+      - name: description
+        data_type: text
+        description: Description of the show
+      - name: director
+        data_type: character_varying(255)
+        description: Director of the show
+      - name: blender_version
+        data_type: character_varying(20)
+        description: Primary Blender version used for the show
+      - name: characters
+        data_type: json
+        description: List of character names in the show
+      - name: created_at
+        data_type: timestamp
+        description: Timestamp when the show record was created
+      - name: updated_at
+        data_type: timestamp
+        description: Timestamp when the show record was last updated
 
   - name: files
     description: General metadata about all files in the database.
@@ -8,29 +59,38 @@ tables:
         data_type: integer
     columns:
       - name: file_name
-        data_type: character_varying
+        data_type: character_varying(255)
         description: Name of the file including the extension. Does not include the path.
       - name: file_path
-        data_type: character_varying
+        data_type: character_varying(1024)
         description: Full path to the file.
       - name: file_type
-        data_type: character_varying
+        data_type: character_varying(50)
         description: Category the file falls into.
         sample_values:
           - image
           - video
           - blend
+          - audio
+          - code
+          - spreadsheet
+          - document
+          - unknown
       - name: extension
-        data_type: character_varying
+        data_type: character_varying(50)
         description: File prefix extension.
         sample_values:
           - .png
           - .jpg
           - .blend
           - .mp4
+          - .wav
+          - .py
+          - .xlsx
+          - .pdf
       - name: file_size
         data_type: integer
-        description: Size of the file in KB.
+        description: Size of the file in bytes.
       - name: created_date
         data_type: timestamp
         description: Date the file was created.
@@ -40,19 +100,22 @@ tables:
       - name: scan_date
         data_type: timestamp
         description: Date that the file was scanned and put into this database.
-      - name: metadata_json
-        data_type: json
-        description: Contains the full set of information from the other columns in this table.
+      - name: show
+        data_type: character_varying(255)
+        description: Show name extracted from path. References shows.name. Can be 'other' for files not belonging to a specific show.
+      - name: version_number
+        data_type: integer
+        description: Version number extracted from filename if present.
       - name: error
         data_type: text
         description: Typically is Null, but if there was an error scanning the file, it will show here.
       - name: metadata_embedding
-        data_type: vector
+        data_type: vector(384)
         description: "An embedding vector of the metadata for this entry. Uses the model: all-MiniLM-L6-v2 with 384 dimensions. Is used to measure the similarity of metadata between files."
 
 
   - name: blend_files
-    description: Metadata specific to blend files. 
+    description: Metadata specific to Blender (.blend) files.
     primary_key:
       - name: id
         data_type: integer
@@ -61,6 +124,9 @@ tables:
       - name: file_id
         data_type: integer
         description: ID number of the file, relates to the ID from the "files" table.
+      - name: blender_version
+        data_type: character_varying(20)
+        description: Blender version extracted from file header (e.g., "4.0.2" or "2.49").
       - name: num_frames
         data_type: integer
         description: Total number of frames in the blend file.
@@ -70,7 +136,7 @@ tables:
         synonyms:
           - frame rate
       - name: render_engine
-        data_type: character_varying
+        data_type: character_varying(100)
         description: The specific render engine the blend file is set to.
         sample_values:
           - CYCLES
@@ -93,19 +159,16 @@ tables:
       - name: lights
         data_type: integer
         description: Number of lights within the blend file.
-      - name: empties
-        data_type: integer
-        description: Number of empties within the blend file.
       - name: thumbnail_path
-        data_type: character_varying
-        description: File path to the thumbnail image of the contents of this blend file.
+        data_type: character_varying(1024)
+        description: Path to 512x512 JPG viewport render thumbnail. Format is show/blend/file_id_thumb.jpg
       - name: visual_embedding
-        data_type: vector
+        data_type: vector(512)
         description: "An embedding vector of this file's thumbnail image. Uses CLIP model with 512 dimensions. Used to compare the similarity of images and to search for images using text prompts."
 
 
   - name: images
-    description: Metadata specific to image files. 
+    description: Metadata specific to image files.
     primary_key:
       - name: id
         data_type: integer
@@ -114,28 +177,32 @@ tables:
       - name: file_id
         data_type: integer
         description: ID number of the file, relates to the ID from the "files" table.
-      - name: width
+      - name: resolution_x
         data_type: integer
         description: Number of horizontal pixels in the image.
-      - name: height
+        synonyms:
+          - width
+      - name: resolution_y
         data_type: integer
         description: Number of vertical pixels in the image.
+        synonyms:
+          - height
       - name: mode
-        data_type: character_varying
+        data_type: character_varying(50)
         description: Color mode of the image.
         sample_values:
           - RGB
-          - RGMA
+          - RGBA
       - name: thumbnail_path
-        data_type: character_varying
-        description: File path to the thumbnail image.
+        data_type: character_varying(1024)
+        description: Path to 512x512 JPG thumbnail. Format is show/image/file_id_thumb.jpg
       - name: visual_embedding
-        data_type: vector
+        data_type: vector(512)
         description: "An embedding vector of this file's thumbnail image. Uses CLIP model with 512 dimensions. Used to compare the similarity of images and to search for images using text prompts."
 
 
   - name: videos
-    description: Metadata specific to video files. 
+    description: Metadata specific to video files.
     primary_key:
       - name: id
         data_type: integer
@@ -144,12 +211,16 @@ tables:
       - name: file_id
         data_type: integer
         description: ID number of the file, relates to the ID from the "files" table.
-      - name: width
+      - name: resolution_x
         data_type: integer
         description: Number of horizontal pixels in the video.
-      - name: height
+        synonyms:
+          - width
+      - name: resolution_y
         data_type: integer
         description: Number of vertical pixels in the video.
+        synonyms:
+          - height
       - name: duration
         data_type: double_precision
         description: How long the video is in seconds.
@@ -157,7 +228,7 @@ tables:
         data_type: double_precision
         description: Frames per second of the video.
       - name: codec
-        data_type: character_varying
+        data_type: character_varying(100)
         description: Codec used for the video.
         sample_values:
           - h264
@@ -166,27 +237,129 @@ tables:
         data_type: integer
         description: Amount of digital data processed per second, measured in bits per second (bps).
       - name: thumbnail_path
-        data_type: character_varying
-        description: File path to the thumbnail image.
+        data_type: character_varying(1024)
+        description: Path to 512x512 JPG thumbnail. Format is show/video/file_id_thumb.jpg
       - name: visual_embedding
-        data_type: vector
+        data_type: vector(512)
         description: "An embedding vector of this file's thumbnail image. Uses CLIP model with 512 dimensions. Used to compare the similarity of images and to search for images using text prompts."
 
 
-  - name: text_files
-    description: Metadata specific to text files. 
+  - name: audio
+    description: Audio file-specific metadata
     primary_key:
       - name: id
         data_type: integer
-        description: The id specific to the files in this table.
+        description: The id specific to audio files in this table.
     columns:
       - name: file_id
         data_type: integer
         description: ID number of the file, relates to the ID from the "files" table.
+      - name: duration
+        data_type: double_precision
+        description: Duration of the audio in seconds.
+      - name: bitrate
+        data_type: integer
+        description: Bitrate in bits per second.
+      - name: sample_rate
+        data_type: integer
+        description: Sample rate in Hz (e.g., 44100, 48000).
+      - name: channels
+        data_type: integer
+        description: Number of audio channels (1=mono, 2=stereo, etc.).
+      - name: codec
+        data_type: character_varying(50)
+        description: Audio codec.
+        sample_values:
+          - mp3
+          - flac
+          - aac
+          - wav
+
+
+  - name: code
+    description: Code file-specific metadata
+    primary_key:
+      - name: id
+        data_type: integer
+        description: The id specific to code files in this table.
+    columns:
+      - name: file_id
+        data_type: integer
+        description: ID number of the file, relates to the ID from the "files" table.
+      - name: language
+        data_type: character_varying(50)
+        description: Programming language.
+        sample_values:
+          - python
+          - cpp
+          - javascript
+      - name: num_lines
+        data_type: integer
+        description: Total number of lines in the file.
+      - name: encoding
+        data_type: character_varying(50)
+        description: File encoding (e.g., utf-8, ascii).
+      - name: has_shebang
+        data_type: boolean
+        description: Whether file has a shebang (#!/usr/bin/env python).
+
+
+  - name: spreadsheets
+    description: Spreadsheet file-specific metadata
+    primary_key:
+      - name: id
+        data_type: integer
+        description: The id specific to spreadsheet files in this table.
+    columns:
+      - name: file_id
+        data_type: integer
+        description: ID number of the file, relates to the ID from the "files" table.
+      - name: num_sheets
+        data_type: integer
+        description: Number of sheets/tabs in the spreadsheet.
+      - name: sheet_names
+        data_type: json
+        description: List of sheet names.
+      - name: num_rows
+        data_type: integer
+        description: Total number of rows (sum for Excel, count for CSV).
+      - name: num_columns
+        data_type: integer
+        description: Maximum number of columns.
+      - name: has_header
+        data_type: boolean
+        description: Whether a header row was detected.
+
+
+  - name: documents
+    description: Document file-specific metadata (text files, PDFs, Word docs, etc.)
+    primary_key:
+      - name: id
+        data_type: integer
+        description: The id specific to document files in this table.
+    columns:
+      - name: file_id
+        data_type: integer
+        description: ID number of the file, relates to the ID from the "files" table.
+      - name: doc_type
+        data_type: character_varying(50)
+        description: Document type.
+        sample_values:
+          - txt
+          - pdf
+          - docx
+          - odt
+          - md
+      - name: page_count
+        data_type: integer
+        description: Number of pages (for PDF, ODT, DOCX).
+      - name: word_count
+        data_type: integer
+        description: Approximate word count.
 
 
   - name: unknown_files
-    description: Metadata for all other files that don't fit into the categories of image, video, blend, or text.
+    description: Metadata for all other files that don't fit into the above categories.
     primary_key:
       - name: id
         data_type: integer
@@ -198,6 +371,16 @@ tables:
 
 
 relationships:
+  - name: files_to_shows
+    left_table: files
+    right_table: shows
+    relationship_columns:
+      - left_column: show
+        right_column: name
+    join_type: left_outer
+    relationship_type: many_to_one
+    description: Each file can belong to a show, or be in 'other' if not show-specific
+
   - name: blend_files_to_files
     left_table: blend_files
     right_table: files
@@ -228,15 +411,45 @@ relationships:
     relationship_type: many_to_one
     description: Each video entry references a single file in the files table
 
-  - name: text_files_to_files
-    left_table: text_files
+  - name: audio_to_files
+    left_table: audio
     right_table: files
     relationship_columns:
       - left_column: file_id
         right_column: id
     join_type: left_outer
     relationship_type: many_to_one
-    description: Each text file entry references a single file in the files table
+    description: Each audio entry references a single file in the files table
+
+  - name: code_to_files
+    left_table: code
+    right_table: files
+    relationship_columns:
+      - left_column: file_id
+        right_column: id
+    join_type: left_outer
+    relationship_type: many_to_one
+    description: Each code file entry references a single file in the files table
+
+  - name: spreadsheets_to_files
+    left_table: spreadsheets
+    right_table: files
+    relationship_columns:
+      - left_column: file_id
+        right_column: id
+    join_type: left_outer
+    relationship_type: many_to_one
+    description: Each spreadsheet entry references a single file in the files table
+
+  - name: documents_to_files
+    left_table: documents
+    right_table: files
+    relationship_columns:
+      - left_column: file_id
+        right_column: id
+    join_type: left_outer
+    relationship_type: many_to_one
+    description: Each document entry references a single file in the files table
 
   - name: unknown_files_to_files
     left_table: unknown_files
@@ -251,16 +464,15 @@ relationships:
   
 
 verified_queries:
-  - name: "Count files in specific folder"
-    question: "How many blend files are there in the charge show?"
+  - name: "Count files in specific show"
+    question: "How many files are there in charge?"
     sql: "
 SELECT
-  COUNT(*) AS blend_file_count
+  COUNT(*)
 FROM
-  blend_files bf
-  JOIN files f ON bf.file_id = f.id
+  files
 WHERE
-  f.file_path LIKE '%charge%';
+  show = 'charge';
 "
 
   - name: "Semantic search for character images"
@@ -274,8 +486,9 @@ SELECT
   f.file_name,
   f.file_path,
   f.file_type,
-  img.width,
-  img.height,
+  f.show,
+  img.resolution_x,
+  img.resolution_y,
   img.thumbnail_path,
   1 - (f.metadata_embedding <=> '[EMBEDDING_VECTOR]'::vector) AS similarity
 FROM
@@ -299,6 +512,7 @@ SELECT
   f.id,
   f.file_name,
   f.file_path,
+  f.show,
   bf.resolution_x,
   bf.resolution_y,
   bf.render_engine,
@@ -323,39 +537,33 @@ SELECT
   f.file_name,
   f.file_path,
   f.file_type,
-  img.width,
-  img.height,
+  f.show,
+  img.resolution_x,
+  img.resolution_y,
   img.thumbnail_path
 FROM
   files f
   JOIN images img ON f.id = img.file_id
 WHERE
-  img.width >= 3840
-  AND img.height >= 2160
+  img.resolution_x >= 3840
+  AND img.resolution_y >= 2160
 ORDER BY
   f.modified_date DESC
 LIMIT 10;
 "
 
-  - name: "Files from specific show"
-    question: "Show images from the Spring show"
+  - name: "image thumbnails from specific show"
+    question: "Get image thumbnails from Spring show"
     sql: "
-SELECT
+SELECT 
   f.id,
   f.file_name,
-  f.file_path,
-  f.file_type,
-  img.width,
-  img.height,
   img.thumbnail_path
-FROM
-  files f
-  JOIN images img ON f.id = img.file_id
-WHERE
-  f.file_path LIKE '%Spring%'
-  AND f.file_type = 'image'
-ORDER BY
-  f.modified_date DESC
+FROM files f
+JOIN images img ON f.id = img.file_id
+WHERE f.show = 'Spring'
+  AND img.thumbnail_path IS NOT NULL
+ORDER BY f.modified_date DESC
 LIMIT 20;
 "
 
@@ -379,8 +587,9 @@ SELECT
   f.file_name,
   f.file_path,
   f.file_type,
-  vid.width,
-  vid.height,
+  f.show,
+  vid.resolution_x,
+  vid.resolution_y,
   vid.duration,
   vid.thumbnail_path,
   1 - (vid.visual_embedding <=> '[EMBEDDING_VECTOR]'::vector) AS similarity
@@ -392,5 +601,43 @@ WHERE
 ORDER BY
   vid.visual_embedding <=> '[EMBEDDING_VECTOR]'::vector
 LIMIT 10;
+"
+
+  - name: "Show statistics"
+    question: "How many files does each show have?"
+    sql: "
+SELECT
+  f.show,
+  COUNT(*) AS file_count,
+  COUNT(DISTINCT f.file_type) AS file_types
+FROM
+  files f
+GROUP BY
+  f.show
+ORDER BY
+  file_count DESC;
+"
+
+  - name: "Files by show and type"
+    question: "Show me all blend files from show1"
+    sql: "
+SELECT
+  f.id,
+  f.file_name,
+  f.file_path,
+  f.show,
+  bf.resolution_x,
+  bf.resolution_y,
+  bf.render_engine,
+  bf.thumbnail_path
+FROM
+  files f
+  JOIN blend_files bf ON f.id = bf.file_id
+WHERE
+  f.show = 'show1'
+  AND f.file_type = 'blend'
+ORDER BY
+  f.modified_date DESC
+LIMIT 20;
 "
 

@@ -32,7 +32,14 @@ RUN PYTHONPATH=/install python download_models.py
 
 # Copy requirements and install the rest of the dependencies
 COPY requirements.txt .
-RUN pip install -r requirements.txt --target /install --no-cache-dir
+RUN pip install \
+    --platform manylinux2014_x86_64 \
+    --only-binary=:all: \
+    --target /install \
+    --no-cache-dir \
+    --python-version 311 \
+    --implementation cp \
+    -r requirements.txt
 
 # Stage 2: Copy to Lambda base image
 FROM public.ecr.aws/lambda/python:3.11

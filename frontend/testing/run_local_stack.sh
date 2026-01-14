@@ -32,7 +32,7 @@ fi
 # Ensure Flask and Flask-CORS are installed
 if ! python3 -c "import flask, flask_cors" 2>/dev/null; then
     echo "📦 Installing flask and flask-cors..."
-    pip install flask flask-cors
+    pip3 install flask flask-cors
 fi
 
 echo ""
