@@ -1,7 +1,8 @@
 #!/bin/bash
 
-# Rebuilds Docker image and updates Lambda function
+# Rebuilds Docker image with automatic versioning and updates Lambda function
 # Reads configuration from .env file
+# Automatically increments version number based on latest ECR tag
 
 # to run, use
 # cd backend
@@ -31,18 +32,48 @@ done
 # Construct ECR URI
 ECR_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${ECR_REGION}.amazonaws.com/${ECR_REPO_NAME}"
 
-echo "🔨 Rebuilding Lambda Docker image..."
+echo "🔍 Checking for existing versions in ECR..."
+
+# Get all version tags from ECR (format: v1, v2, v3, etc.)
+LATEST_VERSION=$(aws ecr describe-images \
+    --repository-name ${ECR_REPO_NAME} \
+    --region ${ECR_REGION} \
+    --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[?starts_with(@, `v`)] | [0]' \
+    --output text 2>/dev/null || echo "none")
+
+if [ "$LATEST_VERSION" == "none" ] || [ -z "$LATEST_VERSION" ]; then
+    # No version tags found, start at v1
+    NEW_VERSION="v1"
+    echo "   No existing versions found. Starting at ${NEW_VERSION}"
+else
+    echo "   Latest version: ${LATEST_VERSION}"
+    
+    # Parse version number (e.g., v5 -> 5)
+    VERSION_NUM=${LATEST_VERSION#v}
+    
+    # Increment version
+    NEW_VERSION_NUM=$((VERSION_NUM + 1))
+    
+    # Construct new version
+    NEW_VERSION="v${NEW_VERSION_NUM}"
+    echo "   Incrementing to: ${NEW_VERSION}"
+fi
+
+echo ""
+echo "🔨 Building Lambda Docker image..."
 echo "   Repository: ${ECR_REPO_NAME}"
-echo "   ECR URI: ${ECR_URI}:latest"
+echo "   Version: ${NEW_VERSION}"
+echo "   ECR URI: ${ECR_URI}"
 echo ""
 
-# Build docker image
+# Build docker image for AMD64
 docker buildx build \
   --platform linux/amd64 \
   --provenance=false \
   --sbom=false \
   --load \
-  -t ${ECR_REPO_NAME} .
+  -t ${ECR_REPO_NAME}:${NEW_VERSION} \
+  -t ${ECR_REPO_NAME}:latest .
 
 echo ""
 echo "✅ Build complete"
@@ -52,18 +83,27 @@ echo "📤 Pushing to ECR..."
 aws ecr get-login-password --region ${ECR_REGION} | \
     docker login --username AWS --password-stdin ${ECR_URI%/*}
 
-# Tag and push
-docker tag ${ECR_REPO_NAME}:latest ${ECR_URI}:latest
+# Tag with version and latest
+docker tag ${ECR_REPO_NAME}:${NEW_VERSION} ${ECR_URI}:${NEW_VERSION}
+docker tag ${ECR_REPO_NAME}:${NEW_VERSION} ${ECR_URI}:latest
+
+# Push both tags
+echo "   Pushing ${NEW_VERSION}..."
+docker push ${ECR_URI}:${NEW_VERSION}
+echo "   Pushing latest..."
 docker push ${ECR_URI}:latest
 
 echo ""
 echo "✅ Push complete"
-echo "🔄 Updating Lambda function..."
+echo "🔄 Updating Lambda function to use ${NEW_VERSION}..."
 
-# Update Lambda
+# Note: Architecture must be set to arm64 in AWS Console or via AWS CLI v2
+# The image is built for ARM64, so ensure Lambda is configured accordingly
+
+# Update Lambda code with the versioned image
 aws lambda update-function-code \
     --function-name ${LAMBDA_FUNCTION_NAME} \
-    --image-uri ${ECR_URI}:latest \
+    --image-uri ${ECR_URI}:${NEW_VERSION} \
     --region ${ECR_REGION} \
     --no-cli-pager
 
@@ -81,7 +121,10 @@ status=$(aws lambda get-function \
 echo "   Status: ${status}"
 
 if [ "$status" == "Successful" ]; then
+    echo ""
     echo "🎉 Deployment successful!"
+    echo "   Version: ${NEW_VERSION}"
+    echo "   Image: ${ECR_URI}:${NEW_VERSION}"
 else
     echo "⏳ Deployment in progress. Check AWS Console for status."
 fi

@@ -14,21 +14,30 @@ from langgraph.graph import StateGraph, END
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 
 # Import services
-from src.services.bedrock_client import invoke_bedrock_for_reasoning
+from psycopg2.extras import RealDictCursor
+from src.services.database import get_connection, release_connection, _add_thumbnail_urls
+from src.services.bedrock_client import invoke_bedrock
 from src.services.embeddings import (
     generate_text_embedding,
     generate_image_embedding_from_text,
     generate_image_embedding_from_base64
 )
-from src.services.database import get_connection, release_connection, _add_thumbnail_urls
-from psycopg2.extras import RealDictCursor
+
 
 logger = logging.getLogger()
 
-# Load database structure
-DB_STRUCTURE_PATH = os.path.join(os.path.dirname(__file__), 'db_structure.yaml')
-with open(DB_STRUCTURE_PATH, 'r') as f:
-    DB_STRUCTURE = yaml.safe_load(f)
+# Load semantic file (contains database structure and relationships, custom instructions, verified queries)
+SEMANTIC_FILE_PATH = os.path.join(os.path.dirname(__file__), 'semantic_file.yaml')
+with open(SEMANTIC_FILE_PATH, 'r') as f:
+    SEMANTIC_FILE_DICT = yaml.safe_load(f)
+
+# contains the whole semantic file as a string
+SEMANTIC_FILE_STR = yaml.dump(SEMANTIC_FILE_DICT, default_flow_style=False)
+
+# contains the individual components of the semantic file as strings
+CUSTOM_INSTRUCTIONS_STR = yaml.dump(SEMANTIC_FILE_DICT.get('custom_instructions', []), default_flow_style=False)
+DATABASE_SCHEMA_STR = yaml.dump(SEMANTIC_FILE_DICT.get('tables', []), default_flow_style=False)
+VERIFIED_QUERIES_STR = yaml.dump(SEMANTIC_FILE_DICT.get('verified_queries', []), default_flow_style=False)
 
 
 class ChatAgentState(TypedDict):
@@ -99,7 +108,7 @@ def prompt_enhancement_node(state: ChatAgentState) -> ChatAgentState:
     start_time = time.time()
     logger.info("Prompt enhancement node - Analyzing user query")
     
-    # Build context from conversation history
+    # Build context from conversation history. Only include the last 5 messages to keep the prompt concise.
     context = ""
     if state.get('conversation_history'):
         context = "Previous conversation:\n"
@@ -108,29 +117,24 @@ def prompt_enhancement_node(state: ChatAgentState) -> ChatAgentState:
         context += "\n"
     
     # Build prompt for enhancement
-    prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
-
+    prompt = f"""
 You are analyzing a user's query about a CG production asset database. Your task is to:
 1. Understand what the user is asking for
 2. Identify key search criteria (file types, folders, attributes, etc.)
 3. Determine if they need similarity search (semantic or visual)
 4. Clarify any ambiguous terms
 
-Database contains:
-- Blend files (.blend) with render settings, resolution, objects
-- Images (.png, .jpg, etc.) with dimensions
-- Videos (.mp4, etc.) with duration, codec
-- All files have metadata including file_path, file_name, created_date, modified_date
+The database schema is as follows:
+{DATABASE_SCHEMA_STR}
 
+The chat history is as follows:
 {context}
-
-<|eot_id|><|start_header_id|>user<|end_header_id|>
 
 User query: {state['user_query']}
 
 {"User uploaded an image for similarity search." if state.get('uploaded_image_base64') else ""}
 
-Analyze this query and respond in JSON format:
+Analyze this query and respond in JSON format like this:
 {{
   "enhanced_query": "Clarified version of the query",
   "intent": {{
@@ -141,13 +145,10 @@ Analyze this query and respond in JSON format:
     "key_criteria": ["list", "of", "criteria"]
   }}
 }}
-
-<|eot_id|><|start_header_id|>assistant<|end_header_id|>
-
 """
     
     # Get LLM response
-    response = invoke_bedrock_for_reasoning(prompt)
+    response = invoke_bedrock(prompt, streaming=False, temperature=0.3, max_tokens=1024)
     
     # Parse JSON response
     try:
@@ -228,18 +229,32 @@ def sql_generation_node(state: ChatAgentState) -> ChatAgentState:
     start_time = time.time()
     logger.info(f"SQL generation node - Attempt {state['attempt_count'] + 1}/{state['max_attempts']}")
     
-    # Build database schema context
-    schema_context = yaml.dump(DB_STRUCTURE, default_flow_style=False)
+    # Build conversation history context for follow-up questions
+    conversation_recall_depth = 3  # how many previous messages to include in conversation context
+    conversation_context = ""
+    if state.get('conversation_history'):
+        for msg in state['conversation_history'][-conversation_recall_depth:]:
+            role = msg.get('role', 'unknown')
+            content = msg.get('content', '')
+            conversation_context += f"{role}: {content}\n"
+            
+            # If this is an assistant message with tool_calls (SQL query), include it
+            if role == 'assistant' and 'tool_calls' in msg:
+                tool_calls = msg.get('tool_calls', [])
+                if tool_calls and isinstance(tool_calls, list) and len(tool_calls) > 0:
+                    sql_query = tool_calls[0].get('sql_query')
+                    if sql_query:
+                        conversation_context += f"  [SQL used: {sql_query}]\n"
     
     # Build embedding context
     embedding_context = ""
     if state.get('text_embedding'):
         embedding_str = f"[{','.join(map(str, state['text_embedding']))}]"
-        embedding_context += f"\nText embedding available: Use '[EMBEDDING_VECTOR]'::vector in your query, which will be replaced with: {embedding_str[:100]}..."
+        embedding_context += f"\nText embedding available: If needed, use '[EMBEDDING_VECTOR]'::vector in your query, which will be replaced with: {embedding_str[:100]}..."
     
     if state.get('visual_embedding'):
         embedding_str = f"[{','.join(map(str, state['visual_embedding']))}]"
-        embedding_context += f"\nVisual embedding available: Use '[VISUAL_EMBEDDING]'::vector in your query, which will be replaced with: {embedding_str[:100]}..."
+        embedding_context += f"\nVisual embedding available: If needed, use '[VISUAL_EMBEDDING]'::vector in your query, which will be replaced with: {embedding_str[:100]}..."
     
     # Build feedback context if this is a retry
     feedback_context = ""
@@ -247,56 +262,50 @@ def sql_generation_node(state: ChatAgentState) -> ChatAgentState:
         feedback_context = f"\n\nPrevious attempt failed. Feedback:\n{state['evaluation_feedback']}\n\nGenerate an improved query."
     
     # Build prompt for SQL generation
-    prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
+    prompt = f"""
+You are a PostgreSQL query generator for a database of assets from a CG production studio. 
+Generate an SQL query to answer the user's question.
 
-You are a PostgreSQL query generator for a CG production asset database. Generate a SQL query to answer the user's question.
+Recent conversation (for context on follow-up questions):
+{conversation_context}
 
-Database Schema:
-{schema_context}
+Current User Query: {state['enhanced_query']}
 
+Intent: {json.dumps(state.get('query_intent', {}), indent=2)}
+{feedback_context}
+
+Here is the semantic file that defines the database schema, verified queries, and custom instructions:
+{SEMANTIC_FILE_STR}
+
+Here is the embedding context:
 {embedding_context}
 
 IMPORTANT RULES:
 1. **Column References**: Only use columns that exist in the table you're querying
-   - blend_files table does NOT have file_path or file_name - use JOIN to files table
-   - images table does NOT have file_path or file_name - use JOIN to files table
-   - videos table does NOT have file_path or file_name - use JOIN to files table
    
-2. **JOINs**: Use proper JOINs based on relationships:
-   - blend_files.file_id = files.id
-   - images.file_id = files.id
-   - videos.file_id = files.id
+2. **Show Filtering**: Use the show column in files table for filtering by show
+   - Example: WHERE f.show = 'show1' (not LIKE '%show1%')
+   - 'other' is used for files not belonging to a specific show
    
-3. **GROUP BY**: If using COUNT/SUM/AVG with other columns, include those columns in GROUP BY
-   - Example: SELECT file_type, COUNT(*) FROM files GROUP BY file_type
+3. **JOINs**: Use proper JOINs based on relationships:
    
 4. **Similarity Search**: Use <=> operator for vector similarity
    - Example: ORDER BY metadata_embedding <=> '[EMBEDDING_VECTOR]'::vector
    
-5. **LIMIT**: Always include LIMIT (default: 10-20) to prevent excessive results
+5. **SELECT Only**: Only generate SELECT queries (no INSERT, UPDATE, DELETE)
 
-6. **SELECT Only**: Only generate SELECT queries (no INSERT, UPDATE, DELETE)
+6. **Example Queries**: Refer to the verified_queries section in the schema for patterns
 
-7. **Example Queries**: Refer to the verified_queries section in the schema for patterns
 
-<|eot_id|><|start_header_id|>user<|end_header_id|>
-
-Enhanced Query: {state['enhanced_query']}
-Intent: {json.dumps(state.get('query_intent', {}), indent=2)}
-{feedback_context}
-
-Generate a PostgreSQL query to answer this question. Respond in JSON format:
+Generate a PostgreSQL query to answer the user's query. Respond in strict JSON format like this:
 {{
   "sql": "SELECT ...",
   "explanation": "Brief explanation of what the query does"
 }}
-
-<|eot_id|><|start_header_id|>assistant<|end_header_id|>
-
 """
     
     # Get LLM response
-    response = invoke_bedrock_for_reasoning(prompt)
+    response = invoke_bedrock(prompt, streaming=False, temperature=0.3, max_tokens=1024)
     
     # Parse SQL from response
     try:
@@ -349,7 +358,7 @@ def result_evaluation_node(state: ChatAgentState) -> ChatAgentState:
     
     # Execute SQL query
     if not state.get('sql_query'):
-        state['final_answer'] = "I apologize, but I was unable to generate a valid SQL query for your request."
+        state['final_answer'] = "I was unable to generate a valid SQL query for your request. Please try reformatting your question."
         state['query_results'] = []
         return state
     
@@ -439,22 +448,18 @@ def result_evaluation_node(state: ChatAgentState) -> ChatAgentState:
     else:
         results_summary = "No results found."
     
-    eval_prompt = f"""<|begin_of_text|><|start_header_id|>system<|end_header_id|>
-
+    eval_prompt = f"""
 Evaluate if the SQL query results answer the user's question.
 
 IMPORTANT: 
 - For COUNT, SUM, AVG, MIN, MAX queries, a single row result IS the complete answer
 - The row contains the aggregate value that directly answers the question
-- A COUNT of 0 (zero) is a VALID and COMPLETE answer - it means "there are none"
-- Do NOT mark zero results as unsatisfactory for counting queries
+- An answer of 0 (zero) is a VALID and COMPLETE answer - it means "there are none"
+- Do NOT mark 0 (zero) results as unsatisfactory for counting queries
 
-<|eot_id|><|start_header_id|>user<|end_header_id|>
+User's query: {state['enhanced_query']}
 
-User's question: {state['user_query']}
-Enhanced query: {state['enhanced_query']}
-
-SQL Query executed:
+Executed SQL Query:
 {state['sql_query']}
 
 Results:
@@ -466,12 +471,9 @@ Does this answer the user's question? Respond in JSON:
   "feedback": "If not satisfactory, explain what's wrong and how to improve the query",
   "summary": "User-friendly summary of the findings (e.g., 'There are 0 blend files in the charge show.')"
 }}
-
-<|eot_id|><|start_header_id|>assistant<|end_header_id|>
-
 """
     
-    eval_response = invoke_bedrock_for_reasoning(eval_prompt)
+    eval_response = invoke_bedrock(eval_prompt, streaming=False, temperature=0.3, max_tokens=1024)
     
     logger.info(f"Evaluation response (first 200 chars): {eval_response[:200]}")
     

@@ -1,6 +1,7 @@
 """
 S3 utilities for thumbnail management.
 Handles presigned URL generation for secure thumbnail access.
+Thumbnails are organized by show: show_name/file_type/file_id_thumb.jpg
 """
 
 import os
@@ -87,31 +88,37 @@ def batch_get_thumbnail_urls(thumbnail_paths: List[str], expiration: int = DEFAU
     return result
 
 
-def get_thumbnail_path(file_id: int, file_type: str) -> str:
+def get_thumbnail_path(file_id: int, file_type: str, show: str = 'other') -> str:
     """
-    Construct S3 key for thumbnail based on file ID and type.
+    Construct S3 key for thumbnail based on file ID, type, and show.
     
     Args:
         file_id: Database file ID
         file_type: File type ('image', 'video', 'blend')
+        show: Show name (defaults to 'other' for files not in a specific show)
         
     Returns:
-        S3 key for thumbnail
+        S3 key for thumbnail following show-based structure
         
     Example:
-        >>> path = get_thumbnail_path(123, 'image')
+        >>> path = get_thumbnail_path(123, 'image', 'show1')
         >>> print(path)
-        'image/123_thumb.jpg'
+        'show1/image/123_thumb.jpg'
+        
+        >>> path = get_thumbnail_path(456, 'blend', 'other')
+        >>> print(path)
+        'other/blend/456_thumb.jpg'
     """
     # Map file types to S3 folders
     folder_map = {
-        'image': 'image',
-        'video': 'video',
+        'image': 'images',
+        'video': 'videos',
         'blend': 'blend'
     }
     
-    folder = folder_map.get(file_type, 'image')
-    return f"{folder}/{file_id}_thumb.jpg"
+    folder = folder_map.get(file_type, 'images')
+    return f"{show}/{folder}/{file_id}_thumb.jpg"
+
 
 
 def check_thumbnail_exists(thumbnail_path: str) -> bool:
