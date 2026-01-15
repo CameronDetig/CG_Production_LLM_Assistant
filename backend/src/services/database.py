@@ -63,18 +63,11 @@ def _add_thumbnail_urls(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         Results with thumbnail_url field added
     """
     for result in results:
-        # Determine which thumbnail path to use based on file type
-        thumbnail_path = None
-        file_type = result.get('file_type', '')
+        # The column is 'thumbnail_path' from whichever child table was joined
+        # (blend_files.thumbnail_path, images.thumbnail_path, or videos.thumbnail_path)
+        thumbnail_path = result.get('thumbnail_path')
         
-        if file_type == 'blend':
-            thumbnail_path = result.get('blend_thumbnail')
-        elif file_type == 'image':
-            thumbnail_path = result.get('image_thumbnail')
-        elif file_type == 'video':
-            thumbnail_path = result.get('video_thumbnail')
-        
-        # Generate presigned URL
+        # Generate presigned URL if thumbnail path exists
         if thumbnail_path:
             result['thumbnail_url'] = get_thumbnail_url(thumbnail_path)
         else:
