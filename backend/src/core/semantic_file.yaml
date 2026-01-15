@@ -1,4 +1,11 @@
-name: cg-metadata-db
+database_info: 
+  - name: cg-metadata-db
+    description: "A relational database of metadata form files in a database of assets from Blender Studio's short films. 
+                  This includes images, blend files, videos, etc.
+                  All of Blender's films are open source and the database includes 17 films dating back to 2006."
+    synonyms: 
+      - production server
+      - database
 
 custom_instructions:
   - "Unless the user specifically asks to view the metadata or visual embedding, do not return them in your SQL query."
