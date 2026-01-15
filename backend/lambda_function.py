@@ -262,15 +262,17 @@ def handle_chat(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
                         'count': len(query_results),
                         'results': sanitize_for_json(query_results[:5])  # First 5 results as preview
                     })
-                    
-                    # Stream thumbnails if available
-                    for item in query_results[:10]:  # Top 10 with thumbnails
-                        if item.get('thumbnail_url'):
-                            yield format_sse_event('thumbnail', {
-                                'file_id': item.get('id'),
-                                'file_name': item.get('file_name'),
-                                'thumbnail_url': item['thumbnail_url']
-                            })
+                
+                # Stream thumbnails from the thumbnail_display_node
+                thumbnails = agent_result.get('thumbnails_to_display', [])
+                if thumbnails:
+                    for thumbnail in thumbnails:
+                        yield format_sse_event('thumbnail', {
+                            'file_id': thumbnail.get('file_id'),
+                            'file_name': thumbnail.get('file_name'),
+                            'file_type': thumbnail.get('file_type'),
+                            'thumbnail_url': thumbnail['thumbnail_url']
+                        })
                 
                 # Stream final answer
                 yield format_sse_event('answer_start', {})

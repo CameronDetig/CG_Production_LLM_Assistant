@@ -342,10 +342,13 @@ def parse_sse_stream(response) -> Generator[Tuple[str, List[str], Optional[str]]
                         accumulated_text += f"\n⚠️ **Retry Needed:** {feedback}\n"
                         yield accumulated_text, thumbnail_urls, conversation_id
                     
+                    
                     elif current_event == 'thumbnail':
+                        file_name = data.get('file_name', 'thumbnail')
                         thumbnail_url = data.get('thumbnail_url')
                         if thumbnail_url:
-                            thumbnail_urls.append(thumbnail_url)
+                            # Add thumbnail as inline markdown image
+                            accumulated_text += f"\n\n![{file_name}]({thumbnail_url})"
                             yield accumulated_text, thumbnail_urls, conversation_id
                     
                     elif current_event == 'answer_start':
@@ -386,7 +389,7 @@ def chat_with_backend(
     global current_conversation_id
     
     if not message.strip() and not uploaded_image:
-        yield history, [], "", None
+        yield history, "", None
         return
     
     # Prepare payload
@@ -402,14 +405,23 @@ def chat_with_backend(
         image_base64 = resize_image_to_base64(uploaded_image)
         payload["uploaded_image_base64"] = image_base64
     
+    
     # Prepare headers
     headers = {'Content-Type': 'application/json'}
     if current_token:
         headers['Authorization'] = f'Bearer {current_token}'
     
-    # Add user message to history immediately and yield to show it
-    history.append({'role': 'user', 'content': message})
-    yield history, [], "", None  # Clear inputs immediately
+    # Add user message to history with uploaded image if present
+    message_content = message if message.strip() else "Find similar images to the uploaded image"
+    if uploaded_image:
+        # Convert image to base64 JPEG for inline display
+        buffer = BytesIO()
+        uploaded_image.convert('RGB').save(buffer, format='JPEG', quality=85)
+        img_b64 = base64.b64encode(buffer.getvalue()).decode()
+        message_content = f"{message_content}\n\n![Uploaded Image](data:image/jpeg;base64,{img_b64})"
+    
+    history.append({'role': 'user', 'content': message_content})
+    yield history, "", None  # Clear inputs immediately
     
     try:
         # Send request
@@ -424,19 +436,17 @@ def chat_with_backend(
         if response.status_code != 200:
             error_msg = f"❌ Error: API returned status {response.status_code}"
             history.append({'role': 'assistant', 'content': error_msg})
-            yield history, [], "", None
+            yield history, "", None
             return
         
         # Stream response
         accumulated_response = ""
-        thumbnail_urls = []
         
         # Add placeholder for assistant response
         history.append({'role': 'assistant', 'content': ''})
         
         for text, thumbs, conv_id in parse_sse_stream(response):
             accumulated_response = text
-            thumbnail_urls = thumbs
             
             # Update conversation ID if returned
             if conv_id and not current_conversation_id:
@@ -445,14 +455,14 @@ def chat_with_backend(
             # Update the last message (assistant response)
             history[-1] = {'role': 'assistant', 'content': accumulated_response}
             
-            yield history, thumbnail_urls, "", None
+            yield history, "", None
         
     except Exception as e:
         error_msg = f"❌ Error: {str(e)}"
         if not any(msg.get('role') == 'user' and msg.get('content') == message for msg in history):
             history.append({'role': 'user', 'content': message})
         history.append({'role': 'assistant', 'content': error_msg})
-        yield history, [], "", None
+        yield history, "", None
 
 
 # Build Gradio UI
@@ -513,29 +523,25 @@ with gr.Blocks(title="CG Production Assistant") as demo:
                 height=500
             )
             
-            with gr.Row():
-                msg_input = gr.Textbox(
-                    label="Message",
-                    placeholder="Ask questions about the database...",
-                    scale=4
-                )
-                send_btn = gr.Button("Send", variant="primary", scale=1)
             
             with gr.Row():
-                image_upload = gr.Image(
-                    label="Upload Image for Visual Search (optional)",
-                    type="pil",
-                    height=200
-                )
-                clear_image_btn = gr.Button("Clear Image")
-            
-            gr.Markdown("### 🖼️ Thumbnails")
-            thumbnail_gallery = gr.Gallery(
-                label="Results",
-                show_label=False,
-                columns=5,
-                height=300
-            )
+                # Left: Image upload with clear button below
+                with gr.Column(scale=1):
+                    image_upload = gr.Image(
+                        label="Upload Image for Visual Search",
+                        type="pil",
+                        height=150
+                    )
+                    clear_image_btn = gr.Button("Clear Image", size="sm")
+                
+                # Right: Message box with send button
+                with gr.Column(scale=4):
+                    msg_input = gr.Textbox(
+                        label="Message",
+                        placeholder="Ask questions about the database...",
+                        lines=3
+                    )
+                    send_btn = gr.Button("Send", variant="primary")
     
     # Helper function for signup with password confirmation
     def signup_with_confirmation(email: str, password: str, confirm_password: str) -> Tuple[Optional[str], str]:
@@ -597,13 +603,13 @@ with gr.Blocks(title="CG Production Assistant") as demo:
     msg_input.submit(
         fn=chat_with_backend,
         inputs=[msg_input, chatbot, image_upload],
-        outputs=[chatbot, thumbnail_gallery, msg_input, image_upload]
+        outputs=[chatbot, msg_input, image_upload]
     )
     
     send_btn.click(
         fn=chat_with_backend,
         inputs=[msg_input, chatbot, image_upload],
-        outputs=[chatbot, thumbnail_gallery, msg_input, image_upload]
+        outputs=[chatbot, msg_input, image_upload]
     )
     
     clear_image_btn.click(

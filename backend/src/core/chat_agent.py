@@ -61,6 +61,7 @@ class ChatAgentState(TypedDict):
     max_attempts: int
     final_answer: Optional[str]
     sql_query_history: List[Dict[str, Any]]  # Track all SQL queries attempted
+    thumbnails_to_display: List[Dict[str, Any]]  # Thumbnails extracted from results
 
 
 # Maximum SQL generation attempts
@@ -81,6 +82,7 @@ def create_chat_agent() -> StateGraph:
     workflow.add_node("embedding_determination", embedding_determination_node)
     workflow.add_node("sql_generation", sql_generation_node)
     workflow.add_node("result_evaluation", result_evaluation_node)
+    workflow.add_node("thumbnail_display", thumbnail_display_node)
     
     # Add conditional edge from query_router_node
     # If query is not database-related, final_answer is set and we go to END
@@ -102,9 +104,10 @@ def create_chat_agent() -> StateGraph:
         should_retry_sql,
         {
             "retry": "sql_generation",
-            "finish": END
+            "finish": "thumbnail_display"
         }
     )
+    workflow.add_edge("thumbnail_display", END)
     
     # Set entry point
     workflow.set_entry_point("query_router_node")
@@ -146,7 +149,7 @@ Database schema:
 The chat history is as follows:
 {context}
 
-{"User uploaded an image for similarity search." if state.get('uploaded_image_base64') else ""}
+{"IMPORTANT: User uploaded an image! You MUST set needs_visual_embedding to TRUE and search_type to 'similarity' to perform visual similarity search." if state.get('uploaded_image_base64') else ""}
 
 INSTRUCTIONS:
 First, determine if the user's query relates to the database (asking about files, metadata, shows, assets, etc.) 
@@ -160,6 +163,8 @@ If the user's query RELATES TO THE DATABASE:
    - Determining if they need similarity search (semantic or visual)
    - Clarifying any ambiguous terms
 3. Fill in the "enhanced_query" and "intent" fields
+
+CRITICAL: If user uploaded an image, ALWAYS set needs_visual_embedding to true!
 
 If the user's query DOES NOT RELATE TO THE DATABASE:
 1. Set "is_database_query" to false
@@ -334,17 +339,33 @@ IMPORTANT RULES:
    - Example: WHERE f.show = 'show1' (not LIKE '%show1%')
    - 'other' is used for files not belonging to a specific show
    
-3. **JOINs**: Use proper JOINs based on relationships:
+3. **Thumbnail Columns for UI Display**: ALWAYS include thumbnail_path when querying visual files
+   - When querying blend_files: SELECT bf.thumbnail_path (from blend_files table, not files)
+   - When querying images: SELECT img.thumbnail_path (from images table, not files)
+   - When querying videos: SELECT vid.thumbnail_path (from videos table, not files)
+   - Also SELECT f.file_type from the files table
+   - These columns enable thumbnail display in the UI even if user doesn't ask for them
+   - Note: The files table does NOT have a thumbnail_path column; you must JOIN to child tables
    
-4. **Similarity Search**: Use <=> operator for vector similarity
-   - Example: ORDER BY metadata_embedding <=> '[EMBEDDING_VECTOR]'::vector
+4. **JOINs**: Use proper JOINs based on relationships
    
-5. **SELECT Only**: Only generate SELECT queries (no INSERT, UPDATE, DELETE)
+5. **Similarity Search**: CRITICAL - The <=> operator returns a distance (number), NOT a boolean
+   - CORRECT: Use in ORDER BY clause: ORDER BY embedding_column <=> '[EMBEDDING_VECTOR]'::vector
+   - CORRECT: Filter in WHERE with: WHERE embedding_column IS NOT NULL
+   - WRONG: DO NOT use <=> in WHERE clause (it's not a boolean!)
+   - Example:
+     WHERE bf.visual_embedding IS NOT NULL
+     ORDER BY bf.visual_embedding <=> '[VISUAL_EMBEDDING]'::vector
+    
+   
+6. **SELECT Only**: Only generate SELECT queries (no INSERT, UPDATE, DELETE)
 
-6. **Example Queries**: Refer to the verified_queries section in the schema for patterns
+7. **Example Queries**: Refer to the verified_queries section in the schema for patterns
 
 
-Generate a PostgreSQL query to answer the user's query. Respond in strict JSON format like this:
+Generate a PostgreSQL query to answer the user's query. 
+Respond with ONLY the JSON information and no other text.
+Respond in strict JSON format like this:
 {{
   "sql": "SELECT ...",
   "explanation": "Brief explanation of what the query does"
@@ -354,40 +375,78 @@ Generate a PostgreSQL query to answer the user's query. Respond in strict JSON f
     # Get LLM response
     response = invoke_bedrock(prompt, streaming=False, temperature=0.3, max_tokens=1024)
     
+    # Log raw response for debugging
+    logger.info(f"LLM SQL generation response: {response}")
+    
     # Parse SQL from response
     try:
+        # Find JSON in response - look for first { and matching }
         json_start = response.find('{')
-        json_end = response.rfind('}') + 1
-        if json_start != -1 and json_end > json_start:
-            json_str = response[json_start:json_end]
-            parsed = json.loads(json_str)
-            sql = parsed.get('sql', '')
-            
-            # Replace embedding placeholders
-            if state.get('text_embedding'):
-                embedding_str = f"[{','.join(map(str, state['text_embedding']))}]"
-                sql = sql.replace('[EMBEDDING_VECTOR]', embedding_str)
-            
-            if state.get('visual_embedding'):
-                embedding_str = f"[{','.join(map(str, state['visual_embedding']))}]"
-                sql = sql.replace('[VISUAL_EMBEDDING]', embedding_str)
-            
-            state['sql_query'] = sql
-            
-            # Add to query history (will be updated with results later)
-            state['sql_query_history'].append({
-                'sql': sql,
-                'attempt': state['attempt_count'] + 1,
-                'results': None,  # Will be filled in result_evaluation_node
-                'feedback': None  # Will be filled if retry needed
-            })
-            
-            logger.info(f"Generated SQL: {sql[:200]}...")
-        else:
-            logger.error("Could not extract JSON from SQL generation response")
+        if json_start == -1:
+            logger.error("No JSON object found in LLM response")
+            logger.error(f"Full response: {response}")
             state['sql_query'] = None
+            return state
+        
+        # Find the matching closing brace by counting braces
+        brace_count = 0
+        json_end = -1
+        for i in range(json_start, len(response)):
+            if response[i] == '{':
+                brace_count += 1
+            elif response[i] == '}':
+                brace_count -= 1
+                if brace_count == 0:
+                    json_end = i + 1
+                    break
+        
+        if json_end == -1:
+            logger.error("Could not find matching closing brace in LLM response")
+            logger.error(f"Full response: {response}")
+            state['sql_query'] = None
+            return state
+        
+        json_str = response[json_start:json_end]
+        logger.info(f"Extracted JSON: {json_str}")
+        
+        parsed = json.loads(json_str)
+        sql = parsed.get('sql', '')
+        
+        if not sql:
+            logger.error("No 'sql' field in parsed JSON")
+            logger.error(f"Parsed object: {parsed}")
+            state['sql_query'] = None
+            return state
+        
+        # Replace embedding placeholders
+        if state.get('text_embedding'):
+            embedding_str = f"[{','.join(map(str, state['text_embedding']))}]"
+            sql = sql.replace('[EMBEDDING_VECTOR]', embedding_str)
+        
+        if state.get('visual_embedding'):
+            embedding_str = f"[{','.join(map(str, state['visual_embedding']))}]"
+            sql = sql.replace('[VISUAL_EMBEDDING]', embedding_str)
+        
+        state['sql_query'] = sql
+        
+        # Add to query history (will be updated with results later)
+        state['sql_query_history'].append({
+            'sql': sql,
+            'attempt': state['attempt_count'] + 1,
+            'results': None,  # Will be filled in result_evaluation_node
+            'feedback': None  # Will be filled if retry needed
+        })
+        
+        logger.info(f"Generated SQL: {sql[:200]}...")
+        
     except json.JSONDecodeError as e:
         logger.error(f"JSON parse error in SQL generation: {e}")
+        logger.error(f"Failed to parse: {json_str if 'json_str' in locals() else 'N/A'}")
+        logger.error(f"Full LLM response: {response}")
+        state['sql_query'] = None
+    except Exception as e:
+        logger.error(f"Unexpected error parsing SQL generation response: {e}", exc_info=True)
+        logger.error(f"Full LLM response: {response}")
         state['sql_query'] = None
     
     logger.info(f"SQL generation completed in {time.time() - start_time:.2f}s")
@@ -437,17 +496,47 @@ def result_evaluation_node(state: ChatAgentState) -> ChatAgentState:
         release_connection(conn)
         
     except Exception as e:
-        logger.error(f"Error executing SQL: {e}", exc_info=True)
+        error_msg = str(e)
+        logger.error(f"Error executing SQL: {error_msg}", exc_info=True)
+        
+        # Detect SQL syntax/validity errors
+        is_fatal_sql_error = any(keyword in error_msg.lower() for keyword in [
+            'syntax error', 'does not exist', 'type mismatch', 
+            'datatype mismatch', 'must be type boolean', 'undefined table',
+            'undefined column', 'ambiguous column'
+        ])
+        
         state['query_results'] = []
-        state['evaluation_feedback'] = f"SQL execution error: {str(e)}"
+        
+        # Check if this is the second attempt (attempt_count is 1 on second try)
+        if is_fatal_sql_error and state['attempt_count'] >= 1:
+            # Second failure - give up and show friendly error to user
+            state['final_answer'] = (
+                "❌ I encountered an error generating a valid SQL query for your request. "
+                "The query I created had a syntax issue. Please try rephrasing your question, "
+                "or ask something different."
+            )
+            logger.warning(f"Fatal SQL error on attempt {state['attempt_count'] + 1}, stopping retries")
+        else:
+            # First failure - provide detailed feedback for retry
+            state['evaluation_feedback'] = (
+                f"SQL execution error: {error_msg}. "
+                "Please generate a corrected query that fixes this issue."
+            )
+            logger.info(f"SQL error on attempt {state['attempt_count'] + 1}, will retry with feedback")
+        
         state['attempt_count'] += 1
+        
+        if conn:
+            release_connection(conn)
+        
         return state
     
     # Generate CSV-formatted results for display
     csv_results = ""
     markdown_table = ""
     if state['query_results']:
-        # Get all column names (excluding internal fields)
+        # Get all column names (excluding internal fields as they aren't relevant to the user)
         exclude_cols = {'thumbnail_url', 'thumbnail_path'}
         if state['query_results']:
             all_cols = [k for k in state['query_results'][0].keys() if k not in exclude_cols]
@@ -600,6 +689,39 @@ Does this answer the user's question? Respond in JSON:
     return state
 
 
+def thumbnail_display_node(state: ChatAgentState) -> ChatAgentState:
+    """
+    Check query results for files with thumbnails and prepare them for display.
+    Extracts thumbnail URLs from results and adds them to state for frontend display.
+    """
+    start_time = time.time()
+    logger.info("Thumbnail display node")
+    
+    thumbnails = []
+    query_results = state.get('query_results', [])
+    
+    # Check if we have results with thumbnail URLs
+    if query_results:
+        for item in query_results[:10]:  # Limit to top 10 to avoid overwhelming UI
+            if item.get('thumbnail_url'):
+                thumbnails.append({
+                    'file_id': item.get('id'),
+                    'file_name': item.get('file_name'),
+                    'file_type': item.get('file_type'),
+                    'thumbnail_url': item['thumbnail_url']
+                })
+    
+    state['thumbnails_to_display'] = thumbnails
+    
+    if thumbnails:
+        logger.info(f"Found {len(thumbnails)} thumbnails to display")
+    else:
+        logger.info("No thumbnails found in query results")
+    
+    logger.info(f"Thumbnail display node completed in {time.time() - start_time:.2f}s")
+    return state
+
+
 def should_retry_sql(state: ChatAgentState) -> str:
     """
     Conditional edge: Determine if we should retry SQL generation or finish.
@@ -655,14 +777,15 @@ def run_chat_agent(
         attempt_count=0,
         max_attempts=max_attempts,
         final_answer=None,
-        sql_query_history=[]
+        sql_query_history=[],
+        thumbnails_to_display=[]
     )
     
     # Create and run agent
     agent = create_chat_agent()
     
     # Print ASCII graph for debugging
-    print(agent.get_graph().draw_ascii())
+    # print(agent.get_graph().draw_ascii())
     
     # Run agent with intermediate state tracking
     final_state = agent.invoke(initial_state)
@@ -673,5 +796,6 @@ def run_chat_agent(
         'sql_query': final_state.get('sql_query'),
         'enhanced_query': final_state.get('enhanced_query'),
         'all_sql_queries': final_state.get('sql_query_history', []),  # All queries attempted
+        'thumbnails_to_display': final_state.get('thumbnails_to_display', []),  # Thumbnails for UI
         'attempts': final_state.get('attempt_count', 0) + 1
     }

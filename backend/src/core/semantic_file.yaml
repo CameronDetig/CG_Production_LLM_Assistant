@@ -10,6 +10,9 @@ database_info:
 custom_instructions:
   - "Unless the user specifically asks to view the metadata or visual embedding, do not return them in your SQL query."
   - "Show names should always be lowercase and use underscores instead of spaces."
+  - "When querying blend_files, images, or videos tables, ALWAYS include the thumbnail_path column (bf.thumbnail_path, img.thumbnail_path, or vid.thumbnail_path) in your SELECT statement so thumbnails can be displayed in the UI. Also ensure you JOIN to the files table and select f.file_type."
+  - "The 'relationships' section defines metadata about how tables relate. DO NOT treat relationship names (like 'files_to_shows') as actual tables. Use direct JOINs between tables based on the relationship_columns specified. For example, to join files to shows, use: JOIN shows ON files.show = shows.name"
+  - "For visual similarity searches when the user does NOT specify a file type they are looking for (blend/image/video), use a UNION query to search across ALL visual file types (blend_files, images, videos) to find the best matches regardless of type. Only search a single table if the user explicitly asks for that file type."
 
 tables:
   - name: shows
@@ -509,7 +512,7 @@ ORDER BY
 LIMIT 10;
 "
 
-  - name: "Visual similarity search with uploaded image"
+  - name: "Visual similarity search for blend file with uploaded image"
     question: "What blend file has this character?"
     notes: "User uploaded an image. Generate visual embedding using generate_image_embedding_from_base64(), then search blend files"
     sql: "
@@ -532,7 +535,7 @@ WHERE
   bf.visual_embedding IS NOT NULL
 ORDER BY
   bf.visual_embedding <=> '[EMBEDDING_VECTOR]'::vector
-LIMIT 10;
+LIMIT 5;
 "
 
   - name: "Filter by resolution (4K renders)"
@@ -584,30 +587,55 @@ FROM
 "
 
   - name: "Visual search across all file types"
-    question: "Find videos that look like a sunset"
-    notes: "Generate visual embedding from text 'sunset' using generate_image_embedding_from_text()"
+    question: "What file is this image from?"
+    notes: "User uploaded an image but didn't specify file type. Search across blend_files, images, AND videos using UNION to find best match regardless of type"
     sql: "
--- First generate CLIP embedding from text description
--- Then search videos table:
+-- User uploaded an image, generate visual embedding, then search ALL visual file types
+-- Use UNION to combine results from blend_files, images, and videos
 SELECT
   f.id,
   f.file_name,
   f.file_path,
   f.file_type,
   f.show,
-  vid.resolution_x,
-  vid.resolution_y,
-  vid.duration,
+  bf.thumbnail_path,
+  1 - (bf.visual_embedding <=> '[VISUAL_EMBEDDING]'::vector) AS similarity
+FROM
+  files f
+  JOIN blend_files bf ON f.id = bf.file_id
+WHERE
+  bf.visual_embedding IS NOT NULL
+UNION ALL
+SELECT
+  f.id,
+  f.file_name,
+  f.file_path,
+  f.file_type,
+  f.show,
+  img.thumbnail_path,
+  1 - (img.visual_embedding <=> '[VISUAL_EMBEDDING]'::vector) AS similarity
+FROM
+  files f
+  JOIN images img ON f.id = img.file_id
+WHERE
+  img.visual_embedding IS NOT NULL
+UNION ALL
+SELECT
+  f.id,
+  f.file_name,
+  f.file_path,
+  f.file_type,
+  f.show,
   vid.thumbnail_path,
-  1 - (vid.visual_embedding <=> '[EMBEDDING_VECTOR]'::vector) AS similarity
+  1 - (vid.visual_embedding <=> '[VISUAL_EMBEDDING]'::vector) AS similarity
 FROM
   files f
   JOIN videos vid ON f.id = vid.file_id
 WHERE
   vid.visual_embedding IS NOT NULL
 ORDER BY
-  vid.visual_embedding <=> '[EMBEDDING_VECTOR]'::vector
-LIMIT 10;
+  similarity DESC
+LIMIT 5;
 "
 
   - name: "Show statistics"
@@ -645,6 +673,5 @@ WHERE
   AND f.file_type = 'blend'
 ORDER BY
   f.modified_date DESC
-LIMIT 20;
 "
 
