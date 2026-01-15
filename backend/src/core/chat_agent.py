@@ -35,6 +35,7 @@ with open(SEMANTIC_FILE_PATH, 'r') as f:
 SEMANTIC_FILE_STR = yaml.dump(SEMANTIC_FILE_DICT, default_flow_style=False)
 
 # contains the individual components of the semantic file as strings
+DATABASE_INFO_STR = yaml.dump(SEMANTIC_FILE_DICT.get('database_info', []), default_flow_style=False)
 CUSTOM_INSTRUCTIONS_STR = yaml.dump(SEMANTIC_FILE_DICT.get('custom_instructions', []), default_flow_style=False)
 DATABASE_SCHEMA_STR = yaml.dump(SEMANTIC_FILE_DICT.get('tables', []), default_flow_style=False)
 VERIFIED_QUERIES_STR = yaml.dump(SEMANTIC_FILE_DICT.get('verified_queries', []), default_flow_style=False)
@@ -76,13 +77,24 @@ def create_chat_agent() -> StateGraph:
     workflow = StateGraph(ChatAgentState)
     
     # Add nodes
-    workflow.add_node("prompt_enhancement", prompt_enhancement_node)
+    workflow.add_node("query_router_node", query_router)
     workflow.add_node("embedding_determination", embedding_determination_node)
     workflow.add_node("sql_generation", sql_generation_node)
     workflow.add_node("result_evaluation", result_evaluation_node)
     
+    # Add conditional edge from query_router_node
+    # If query is not database-related, final_answer is set and we go to END
+    # Otherwise, continue to embedding_determination for SQL pipeline
+    workflow.add_conditional_edges(
+        "query_router_node",
+        lambda state: "finish" if state.get('final_answer') else "continue",
+        {
+            "continue": "embedding_determination",
+            "finish": END
+        }
+    )
+    
     # Add edges
-    workflow.add_edge("prompt_enhancement", "embedding_determination")
     workflow.add_edge("embedding_determination", "sql_generation")
     workflow.add_edge("sql_generation", "result_evaluation")
     workflow.add_conditional_edges(
@@ -95,12 +107,12 @@ def create_chat_agent() -> StateGraph:
     )
     
     # Set entry point
-    workflow.set_entry_point("prompt_enhancement")
+    workflow.set_entry_point("query_router_node")
     
     return workflow.compile()
 
 
-def prompt_enhancement_node(state: ChatAgentState) -> ChatAgentState:
+def query_router(state: ChatAgentState) -> ChatAgentState:
     """
     Enhance the user's query using conversation history and database structure.
     Extracts intent and clarifies what the user is looking for.
@@ -109,41 +121,63 @@ def prompt_enhancement_node(state: ChatAgentState) -> ChatAgentState:
     logger.info("Prompt enhancement node - Analyzing user query")
     
     # Build context from conversation history. Only include the last 5 messages to keep the prompt concise.
+    conversation_recall_depth = 5  # how many previous messages to include in conversation context
     context = ""
     if state.get('conversation_history'):
         context = "Previous conversation:\n"
-        for msg in state['conversation_history'][-5:]:
+        for msg in state['conversation_history'][-conversation_recall_depth:]:
             context += f"{msg['role']}: {msg['content']}\n"
         context += "\n"
     
     # Build prompt for enhancement
     prompt = f"""
-You are analyzing a user's query about a CG production asset database. Your task is to:
-1. Understand what the user is asking for
-2. Identify key search criteria (file types, folders, attributes, etc.)
-3. Determine if they need similarity search (semantic or visual)
-4. Clarify any ambiguous terms
+You are analyzing a user's query and routing it to the appropriate node in the workflow.
+The user may ask questions about the cg-production-data database that require an SQL query to be generated, 
+or they may ask general questions that can simply be answered by you directly.
 
-The database schema is as follows:
+User's query: {state['user_query']}
+
+Here is information on the database:
+{DATABASE_INFO_STR}
+
+Database schema:
 {DATABASE_SCHEMA_STR}
 
 The chat history is as follows:
 {context}
 
-User query: {state['user_query']}
-
 {"User uploaded an image for similarity search." if state.get('uploaded_image_base64') else ""}
 
-Analyze this query and respond in JSON format like this:
+INSTRUCTIONS:
+First, determine if the user's query relates to the database (asking about files, metadata, shows, assets, etc.) 
+or if it's a general question (asking about concepts, seeking advice, casual conversation, etc.).
+
+If the user's query RELATES TO THE DATABASE:
+1. Set "is_database_query" to true
+2. Enhance their question by:
+   - Understanding what they're asking for
+   - Identifying key search criteria (file types, folders, attributes, etc.)
+   - Determining if they need similarity search (semantic or visual)
+   - Clarifying any ambiguous terms
+3. Fill in the "enhanced_query" and "intent" fields
+
+If the user's query DOES NOT RELATE TO THE DATABASE:
+1. Set "is_database_query" to false
+2. Provide a helpful, direct answer to their question in the "direct_answer" field
+3. You can leave "enhanced_query" and "intent" empty or with placeholder values
+
+Respond in strict JSON format:
 {{
-  "enhanced_query": "Clarified version of the query",
+  "is_database_query": true|false,
+  "enhanced_query": "Clarified version of the query (if database-related)",
   "intent": {{
     "search_type": "similarity|filter|count|details",
     "file_types": ["image", "video", "blend"],
     "needs_text_embedding": true|false,
     "needs_visual_embedding": true|false,
     "key_criteria": ["list", "of", "criteria"]
-  }}
+  }},
+  "direct_answer": "Your answer to the user's general question (if not database-related)"
 }}
 """
     
@@ -158,8 +192,23 @@ Analyze this query and respond in JSON format like this:
         if json_start != -1 and json_end > json_start:
             json_str = response[json_start:json_end]
             parsed = json.loads(json_str)
-            state['enhanced_query'] = parsed.get('enhanced_query', state['user_query'])
-            state['query_intent'] = parsed.get('intent', {})
+            
+            # Check if this is a database query or general question
+            is_database_query = parsed.get('is_database_query', True)
+            
+            if not is_database_query:
+                # This is a general question - answer directly and skip SQL pipeline
+                direct_answer = parsed.get('direct_answer', 
+                    "I'm designed to help with CG production asset database queries. Your question doesn't seem related to the database. Could you ask about files, metadata, shows, or production data?")
+                state['final_answer'] = direct_answer
+                state['query_results'] = []
+                logger.info(f"Non-database query detected. Direct answer: {direct_answer[:100]}...")
+            else:
+                # This is a database query - enhance it for SQL generation
+                state['enhanced_query'] = parsed.get('enhanced_query', state['user_query'])
+                state['query_intent'] = parsed.get('intent', {})
+                logger.info(f"Database query detected. Enhanced query: {state['enhanced_query']}")
+                logger.info(f"Intent: {state['query_intent']}")
         else:
             logger.warning("Could not parse JSON from enhancement response")
             state['enhanced_query'] = state['user_query']
@@ -170,8 +219,6 @@ Analyze this query and respond in JSON format like this:
         state['query_intent'] = {"search_type": "similarity", "needs_text_embedding": True}
     
     logger.info(f"Prompt enhancement completed in {time.time() - start_time:.2f}s")
-    logger.info(f"Enhanced query: {state['enhanced_query']}")
-    logger.info(f"Intent: {state['query_intent']}")
     
     return state
 
