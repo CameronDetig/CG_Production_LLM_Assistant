@@ -559,6 +559,10 @@ def result_evaluation_node(state: ChatAgentState) -> ChatAgentState:
                         csv_row.append('')
                         md_row.append('')
                     else:
+                        # Round floats to 4 decimal places (for similarity scores etc.)
+                        if isinstance(value, float):
+                            value = round(value, 4)
+                        
                         # For CSV: escape quotes and commas
                         str_val = str(value).replace('"', '""')
                         if ',' in str_val or '\n' in str_val:
