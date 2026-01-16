@@ -160,6 +160,38 @@ curl -X POST https://your-api-id.execute-api.us-east-1.amazonaws.com/prod/chat \
 
 ---
 
+## LangSmith Tracing (Optional)
+
+Enable observability for debugging and monitoring LangGraph agent execution.
+
+### Setup
+
+1. Create account at [smith.langchain.com](https://smith.langchain.com/)
+2. Create a project (e.g., "cg-production-assistant")
+3. Generate an API key from Settings → API Keys
+4. Add to `.env`:
+
+```bash
+LANGCHAIN_TRACING_V2=true
+LANGCHAIN_ENDPOINT=https://api.smith.langchain.com
+LANGCHAIN_API_KEY=lsv2_pt_your_api_key_here
+LANGCHAIN_PROJECT=cg-production-assistant
+```
+
+### What You Get
+
+- Complete agent execution flow visualization
+- LLM prompts and responses
+- SQL queries and results
+- Node-by-node timing
+- Error stacktraces
+
+### Lambda Deployment
+
+Add the same environment variables to your Lambda function configuration.
+
+To disable: set `LANGCHAIN_TRACING_V2=false` or remove the variables.
+
 ## How It Works
 
 ### Query Flow

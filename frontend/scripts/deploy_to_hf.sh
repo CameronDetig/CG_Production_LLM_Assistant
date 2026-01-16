@@ -3,10 +3,15 @@
 
 set -e  # Exit on error
 
-# Check if we're in the frontend directory
+# Get the directory where the script is located
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
+# Change to the frontend directory (parent of scripts/)
+cd "$SCRIPT_DIR/.."
+
+# Verify we're in the correct directory
 if [ ! -f "app.py" ] || [ ! -f "requirements.txt" ]; then
-    echo "❌ Error: This script must be run from the frontend directory"
-    echo "Please run: cd frontend && ./deploy_to_hf.sh"
+    echo "❌ Error: Could not find app.py or requirements.txt in frontend directory"
     exit 1
 fi
 
