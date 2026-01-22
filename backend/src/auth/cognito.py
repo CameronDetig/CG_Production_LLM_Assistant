@@ -227,6 +227,97 @@ def authenticate_user(email: str, password: str) -> Optional[Dict[str, str]]:
         return None
 
 
+def signup_user(email: str, password: str) -> Dict[str, Any]:
+    """
+    Create a new user in Cognito.
+    
+    Args:
+        email: User email
+        password: User password
+        
+    Returns:
+        Dict with 'success', 'message', 'user_confirmed', and optionally 'tokens'
+        
+    Example:
+        >>> result = signup_user('newuser@example.com', 'SecurePass123!')
+        >>> if result['success']:
+        ...     print("Account created!")
+    """
+    try:
+        cognito_client = boto3.client('cognito-idp', region_name=COGNITO_REGION)
+        
+        # Prepare signup parameters
+        signup_params = {
+            'ClientId': COGNITO_CLIENT_ID,
+            'Username': email,
+            'Password': password,
+            'UserAttributes': [
+                {'Name': 'email', 'Value': email}
+            ]
+        }
+        
+        # Add SECRET_HASH if client secret is configured
+        if COGNITO_CLIENT_SECRET:
+            signup_params['SecretHash'] = compute_secret_hash(email)
+        
+        response = cognito_client.sign_up(**signup_params)
+        
+        user_confirmed = response.get('UserConfirmed', False)
+        
+        # Auto-confirm user if not already confirmed
+        if not user_confirmed:
+            try:
+                cognito_client.admin_confirm_sign_up(
+                    UserPoolId=COGNITO_USER_POOL_ID,
+                    Username=email
+                )
+                user_confirmed = True
+                logger.info(f"Auto-confirmed user {email}")
+            except Exception as confirm_error:
+                logger.error(f"Failed to auto-confirm user {email}: {confirm_error}")
+                # Continue anyway - user can still verify via email
+        
+        if user_confirmed:
+            # User is confirmed, try to authenticate and return tokens
+            tokens = authenticate_user(email, password)
+            if tokens:
+                return {
+                    'success': True,
+                    'message': 'Account created and logged in!',
+                    'user_confirmed': True,
+                    'tokens': tokens
+                }
+            else:
+                return {
+                    'success': True,
+                    'message': 'Account created! Please log in.',
+                    'user_confirmed': True
+                }
+        else:
+            return {
+                'success': True,
+                'message': 'Account created! Please check your email to verify your account.',
+                'user_confirmed': False
+            }
+        
+    except cognito_client.exceptions.UsernameExistsException:
+        return {
+            'success': False,
+            'message': 'An account with this email already exists.'
+        }
+    except cognito_client.exceptions.InvalidPasswordException as e:
+        return {
+            'success': False,
+            'message': f'Password does not meet requirements: {str(e)}'
+        }
+    except Exception as e:
+        logger.error(f"Error signing up user {email}: {str(e)}", exc_info=True)
+        return {
+            'success': False,
+            'message': f'Signup error: {str(e)}'
+        }
+
+
 def refresh_access_token(refresh_token: str) -> Optional[Dict[str, str]]:
     """
     Refresh access token using refresh token.

@@ -24,6 +24,7 @@ CORS(app)  # Enable CORS for local testing
 
 @app.route('/chat', methods=['POST', 'OPTIONS'])
 @app.route('/auth', methods=['POST', 'OPTIONS'])
+@app.route('/signup', methods=['POST', 'OPTIONS'])
 @app.route('/conversations', methods=['GET', 'OPTIONS'])
 @app.route('/conversations/<conversation_id>', methods=['GET', 'DELETE', 'OPTIONS'])
 def handle_request(conversation_id=None):
@@ -36,9 +37,13 @@ def handle_request(conversation_id=None):
     print("\n" + "="*50)
     print(f"📨 Received {request.method} request to {request.path}")
     
+    # Get JSON body safely (returns None for GET requests without body)
+    # Using get_json with silent=True to avoid 415 errors
+    json_body = request.get_json(silent=True)
+    
     # Construct Lambda event from Flask request
     event = {
-        'body': json.dumps(request.json) if request.json else None,
+        'body': json.dumps(json_body) if json_body else None,
         'httpMethod': request.method,
         'path': request.path,
         'headers': dict(request.headers),
