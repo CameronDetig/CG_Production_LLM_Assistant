@@ -278,13 +278,14 @@ def update_conversation_title(conversation_id: str, user_id: str, title: str) ->
         return False
 
 
-def generate_title_from_query(query: str, max_length: int = 50) -> str:
+def generate_title_from_query(query: str, max_words: int = 8, max_chars: int = 70) -> str:
     """
     Generate a conversation title from the first user query.
     
     Args:
         query: User's first query
-        max_length: Maximum title length
+        max_words: Maximum number of words in title
+        max_chars: Fallback maximum character length
         
     Returns:
         Generated title
@@ -295,7 +296,7 @@ def generate_title_from_query(query: str, max_length: int = 50) -> str:
         '4K Renders from Lighting Project'
     """
     # Simple title generation - capitalize and truncate
-    # In production, could use LLM to generate better titles
+    # In the future, could use an LLM to generate better titles
     
     # Remove common question words
     query_lower = query.lower()
@@ -305,8 +306,13 @@ def generate_title_from_query(query: str, max_length: int = 50) -> str:
     # Clean up and capitalize
     title = query_lower.strip().capitalize()
     
-    # Truncate if too long
-    if len(title) > max_length:
-        title = title[:max_length-3] + '...'
+    # Truncate to max words
+    words = title.split()
+    if len(words) > max_words:
+        title = ' '.join(words[:max_words]) + '...'
+    
+    # Fallback: truncate by character limit for very long words
+    if len(title) > max_chars:
+        title = title[:max_chars - 3].rstrip() + '...'
     
     return title if title else "New Conversation"

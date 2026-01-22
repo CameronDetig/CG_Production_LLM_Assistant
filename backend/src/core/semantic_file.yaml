@@ -119,6 +119,14 @@ tables:
       - name: error
         data_type: text
         description: Typically is Null, but if there was an error scanning the file, it will show here.
+      - name: tags
+        data_type: json
+        description: List of classification tags applied to the file for categorization and filtering.
+        sample_values:
+          - ["normal_map"]
+          - ["grayscale", "bump_map"]
+          - ["reference_image"]
+          - ["albedo", "pbr"]
       - name: metadata_embedding
         data_type: vector(384)
         description: "An embedding vector of the metadata for this entry. Uses the model: all-MiniLM-L6-v2 with 384 dimensions. Is used to measure the similarity of metadata between files."
@@ -673,5 +681,30 @@ WHERE
   AND f.file_type = 'blend'
 ORDER BY
   f.modified_date DESC
+"
+
+  - name: "Filter files by tags"
+    question: "Show me normal maps from the spring show"
+    notes: "Uses PostgreSQL's @> operator to check if the tags JSON array contains specific values"
+    sql: "
+SELECT
+  f.id,
+  f.file_name,
+  f.file_path,
+  f.file_type,
+  f.show,
+  f.tags,
+  img.resolution_x,
+  img.resolution_y,
+  img.thumbnail_path
+FROM
+  files f
+  LEFT JOIN images img ON f.id = img.file_id
+WHERE
+  f.show = 'spring'
+  AND f.tags @> '[\"normal_map\"]'::jsonb
+ORDER BY
+  f.modified_date DESC
+LIMIT 20;
 "
 

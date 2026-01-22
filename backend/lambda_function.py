@@ -387,19 +387,20 @@ def handle_list_conversations(event: Dict[str, Any], context: Any) -> Dict[str, 
     try:
         user_id = extract_user_from_event(event)
         if not user_id:
-            return {
-                'statusCode': 401,
-                'headers': get_cors_headers(),
-                'body': json.dumps({'error': 'Authentication required'})
-            }
+            # Allow anonymous for local testing (same as /chat endpoint)
+            user_id = 'anonymous'
+            logger.warning("No valid auth token for /conversations, using anonymous user")
         
         from src.services.conversations import list_conversations
         conversations = list_conversations(user_id, limit=50)
         
+        # Sanitize for JSON (handles DynamoDB Decimal types)
+        sanitized_conversations = sanitize_for_json(conversations)
+        
         return {
             'statusCode': 200,
             'headers': get_cors_headers(),
-            'body': json.dumps({'conversations': conversations})
+            'body': json.dumps({'conversations': sanitized_conversations})
         }
         
     except Exception as e:
@@ -418,11 +419,9 @@ def handle_get_conversation(event: Dict[str, Any], context: Any) -> Dict[str, An
     try:
         user_id = extract_user_from_event(event)
         if not user_id:
-            return {
-                'statusCode': 401,
-                'headers': get_cors_headers(),
-                'body': json.dumps({'error': 'Authentication required'})
-            }
+            # Allow anonymous for local testing (same as /chat endpoint)
+            user_id = 'anonymous'
+            logger.warning("No valid auth token for /conversations/{id}, using anonymous user")
         
         # Extract conversation_id from path
         path_params = event.get('pathParameters', {})
@@ -447,7 +446,7 @@ def handle_get_conversation(event: Dict[str, Any], context: Any) -> Dict[str, An
         return {
             'statusCode': 200,
             'headers': get_cors_headers(),
-            'body': json.dumps({'conversation': conversation})
+            'body': json.dumps({'conversation': sanitize_for_json(conversation)})
         }
         
     except Exception as e:
@@ -658,11 +657,9 @@ def handle_delete_conversation(event: Dict[str, Any], context: Any) -> Dict[str,
     try:
         user_id = extract_user_from_event(event)
         if not user_id:
-            return {
-                'statusCode': 401,
-                'headers': get_cors_headers(),
-                'body': json.dumps({'error': 'Authentication required'})
-            }
+            # Allow anonymous for local testing (same as /chat endpoint)
+            user_id = 'anonymous'
+            logger.warning("No valid auth token for DELETE /conversations/{id}, using anonymous user")
         
         # Extract conversation_id from path
         path_params = event.get('pathParameters', {})

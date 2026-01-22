@@ -32,6 +32,7 @@ print(f"Accessing API_ENDPOINT: {API_ENDPOINT}\n")
 current_token = None
 current_user_id = None
 current_conversation_id = None
+conversation_title_to_id = {}  # Maps displayed title to conversation_id
 
 
 def authenticate_via_backend(email: str, password: str) -> Tuple[Optional[str], str]:
@@ -135,13 +136,15 @@ def logout() -> str:
     return "Logged out successfully"
 
 
-def load_conversations() -> List[Tuple[str, str]]:
+def load_conversations() -> List[str]:
     """
     Load user's conversations from backend.
     
     Returns:
-        List of (conversation_id, title) tuples
+        List of conversation titles for dropdown display
     """
+    global conversation_title_to_id
+    
     if not current_token:
         return []
     
@@ -155,7 +158,26 @@ def load_conversations() -> List[Tuple[str, str]]:
         if response.status_code == 200:
             data = response.json()
             conversations = data.get('conversations', [])
-            return [(c['conversation_id'], c['title']) for c in conversations]
+            
+            # Build mapping of title -> conversation_id
+            # Handle duplicate titles by appending a suffix
+            conversation_title_to_id = {}
+            titles = []
+            for c in conversations:
+                title = c['title']
+                conv_id = c['conversation_id']
+                
+                # Handle duplicate titles
+                display_title = title
+                counter = 1
+                while display_title in conversation_title_to_id:
+                    counter += 1
+                    display_title = f"{title} ({counter})"
+                
+                conversation_title_to_id[display_title] = conv_id
+                titles.append(display_title)
+            
+            return titles
         else:
             return []
             
@@ -164,16 +186,25 @@ def load_conversations() -> List[Tuple[str, str]]:
         return []
 
 
-def select_conversation(conversation_id: str) -> List[Dict[str, str]]:
+def select_conversation(title: str) -> List[Dict[str, str]]:
     """
-    Load messages from a conversation.
+    Load messages from a conversation by looking up its ID from the title.
+    
+    Args:
+        title: The conversation title selected from dropdown
     
     Returns:
         Chat history in Gradio 6.0 format (list of message dicts)
     """
     global current_conversation_id
     
-    if not current_token or not conversation_id:
+    if not current_token or not title:
+        return []
+    
+    # Look up conversation_id from title
+    conversation_id = conversation_title_to_id.get(title)
+    if not conversation_id:
+        print(f"No conversation found for title: {title}")
         return []
     
     current_conversation_id = conversation_id
@@ -207,22 +238,23 @@ def select_conversation(conversation_id: str) -> List[Dict[str, str]]:
         return []
 
 
-def new_conversation() -> Tuple[List[Dict[str, str]], str]:
+def new_conversation() -> Tuple[List[Dict[str, str]], str, Any]:
     """
     Start a new conversation.
     
     Returns:
-        (empty_history, status_message)
+        (empty_history, status_message, conversations_dropdown_update)
     """
     global current_conversation_id
     current_conversation_id = None
-    return [], "Started new conversation"
+    conversations = load_conversations()
+    return [], "Started new conversation", gr.update(choices=conversations, value=None)
 
 
-def delete_conversation(conversation_id: str) -> str:
-    """Delete a conversation."""
+def delete_conversation(conversation_id: str) -> Tuple[str, Any]:
+    """Delete a conversation and refresh the list."""
     if not current_token or not conversation_id:
-        return "No conversation selected"
+        return "No conversation selected", gr.update()
     
     try:
         response = requests.delete(
@@ -232,12 +264,13 @@ def delete_conversation(conversation_id: str) -> str:
         )
         
         if response.status_code == 200:
-            return "Conversation deleted"
+            conversations = load_conversations()
+            return "Conversation deleted", gr.update(choices=conversations, value=None)
         else:
-            return f"Error deleting conversation: {response.status_code}"
+            return f"Error deleting conversation: {response.status_code}", gr.update()
             
     except Exception as e:
-        return f"Error: {str(e)}"
+        return f"Error: {str(e)}", gr.update()
 
 
 def resize_image_to_base64(image: Image.Image) -> str:
@@ -374,7 +407,7 @@ def chat_with_backend(
     message: str,
     history: List[Dict[str, str]],
     uploaded_image: Optional[Image.Image] = None
-) -> Generator[Tuple[List[Dict[str, str]], List[str], str, Optional[Image.Image]], None, None]:
+) -> Generator[Tuple[List[Dict[str, str]], str, Optional[Image.Image], List[Tuple[str, str]]], None, None]:
     """
     Send message to backend and stream response.
     
@@ -384,13 +417,16 @@ def chat_with_backend(
         uploaded_image: Optional uploaded image for search
         
     Yields:
-        (updated_history, thumbnail_urls, cleared_input, cleared_image)
+        (updated_history, cleared_input, cleared_image, conversations_list)
     """
     global current_conversation_id
     
     if not message.strip() and not uploaded_image:
-        yield history, "", None
+        yield history, "", None, gr.update()
         return
+    
+    # Track if this is a new conversation
+    was_new_conversation = current_conversation_id is None
     
     # Prepare payload
     payload = {
@@ -421,7 +457,7 @@ def chat_with_backend(
         message_content = f"{message_content}\n\n![Uploaded Image](data:image/jpeg;base64,{img_b64})"
     
     history.append({'role': 'user', 'content': message_content})
-    yield history, "", None  # Clear inputs immediately
+    yield history, "", None, gr.update()  # Clear inputs immediately
     
     try:
         # Send request
@@ -436,7 +472,7 @@ def chat_with_backend(
         if response.status_code != 200:
             error_msg = f"❌ Error: API returned status {response.status_code}"
             history.append({'role': 'assistant', 'content': error_msg})
-            yield history, "", None
+            yield history, "", None, gr.update()
             return
         
         # Stream response
@@ -455,15 +491,35 @@ def chat_with_backend(
             # Update the last message (assistant response)
             history[-1] = {'role': 'assistant', 'content': accumulated_response}
             
-            yield history, "", None
+            yield history, "", None, gr.update()
+        
+        # If this was a new conversation, refresh the dropdown
+        if was_new_conversation and current_conversation_id:
+            conversations = load_conversations()
+            yield history, "", None, gr.update(choices=conversations)
         
     except Exception as e:
         error_msg = f"❌ Error: {str(e)}"
         if not any(msg.get('role') == 'user' and msg.get('content') == message for msg in history):
             history.append({'role': 'user', 'content': message})
         history.append({'role': 'assistant', 'content': error_msg})
-        yield history, "", None
+        yield history, "", None, gr.update()
 
+
+# Custom CSS to fix password input styling
+custom_css = """
+/* Fix password and text inputs showing white background before focus */
+input[type="password"],
+input[type="text"],
+.gradio-container input {
+    background-color: var(--input-background-fill) !important;
+}
+
+/* Ensure inputs inside accordions are styled correctly */
+.accordion input {
+    background-color: var(--input-background-fill) !important;
+}
+"""
 
 # Build Gradio UI
 with gr.Blocks(title="CG Production Assistant") as demo:
@@ -590,26 +646,26 @@ with gr.Blocks(title="CG Production Assistant") as demo:
     
     new_conv_btn.click(
         fn=new_conversation,
-        outputs=[chatbot, auth_status]
+        outputs=[chatbot, auth_status, conversations_list]
     )
     
     delete_conv_btn.click(
         fn=delete_conversation,
         inputs=conversations_list,
-        outputs=auth_status
+        outputs=[auth_status, conversations_list]
     )
     
     # Chat interaction
     msg_input.submit(
         fn=chat_with_backend,
         inputs=[msg_input, chatbot, image_upload],
-        outputs=[chatbot, msg_input, image_upload]
+        outputs=[chatbot, msg_input, image_upload, conversations_list]
     )
     
     send_btn.click(
         fn=chat_with_backend,
         inputs=[msg_input, chatbot, image_upload],
-        outputs=[chatbot, msg_input, image_upload]
+        outputs=[chatbot, msg_input, image_upload, conversations_list]
     )
     
     clear_image_btn.click(
@@ -617,12 +673,17 @@ with gr.Blocks(title="CG Production Assistant") as demo:
         outputs=image_upload
     )
     
-    # Auto-login on startup and load conversations
+    # Auto-login on startup and load conversations (with no selection)
+    def load_conversations_no_selection():
+        """Load conversations but don't auto-select any."""
+        conversations = load_conversations()
+        return gr.update(choices=conversations, value=None)
+    
     demo.load(
         fn=demo_login,
         outputs=[gr.State(), auth_status]
     ).then(
-        fn=load_conversations,
+        fn=load_conversations_no_selection,
         outputs=conversations_list
     )
 
@@ -630,5 +691,6 @@ if __name__ == "__main__":
     demo.launch(
         server_name="0.0.0.0",
         server_port=7860,
-        share=False
+        share=False,
+        css=custom_css
     )

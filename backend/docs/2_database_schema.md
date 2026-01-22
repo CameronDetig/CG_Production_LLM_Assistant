@@ -50,6 +50,7 @@ General metadata about all files in the database.
 | `show` | character_varying(255) | Show name (foreign key to shows.name). Can be "other" for non-show files. |
 | `version_number` | integer | Version number extracted from filename if present. |
 | `error` | text | Typically is Null, but if there was an error scanning the file, it will show here. |
+| `tags` | json | List of classification tags for the file (e.g., ["normal_map", "grayscale"]). Used for categorization and filtering. |
 | `metadata_embedding` | vector(384) | Embedding vector of the metadata. Uses all-MiniLM-L6-v2 model with 384 dimensions for semantic search. |
 
 ---
