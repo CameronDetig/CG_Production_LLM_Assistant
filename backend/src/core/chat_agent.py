@@ -609,7 +609,7 @@ Does this answer the user's question? Respond in JSON:
 {{
   "satisfactory": true|false,
   "feedback": "If not satisfactory, explain what's wrong and how to improve the query",
-  "summary": "User-friendly summary of the findings (e.g., 'There are 0 blend files in the charge show.')"
+  "summary": "Use the ACTUAL DATA from the results to answer the user's question. For example, if results show count=13, say 'There are 13 images in cosmos laundromat', NOT 'Found 1 results'. Extract and use the actual values from the result rows to formulate a natural language answer."
 }}
 """
     

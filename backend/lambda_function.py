@@ -424,8 +424,20 @@ def handle_get_conversation(event: Dict[str, Any], context: Any) -> Dict[str, An
             logger.warning("No valid auth token for /conversations/{id}, using anonymous user")
         
         # Extract conversation_id from path
-        path_params = event.get('pathParameters', {})
-        conversation_id = path_params.get('id')
+        # For Lambda Function URLs, parse from rawPath
+        # For API Gateway, use pathParameters
+        conversation_id = None
+        
+        if 'requestContext' in event and 'http' in event.get('requestContext', {}):
+            # Lambda Function URL format - parse from rawPath
+            path = event.get('rawPath', '')
+            if path.startswith('/conversations/'):
+                conversation_id = path.split('/conversations/')[-1]
+                logger.info(f"Extracted conversation_id from rawPath: {conversation_id}")
+        else:
+            # API Gateway format - use pathParameters
+            path_params = event.get('pathParameters', {})
+            conversation_id = path_params.get('id')
         
         if not conversation_id:
             return {
@@ -662,8 +674,20 @@ def handle_delete_conversation(event: Dict[str, Any], context: Any) -> Dict[str,
             logger.warning("No valid auth token for DELETE /conversations/{id}, using anonymous user")
         
         # Extract conversation_id from path
-        path_params = event.get('pathParameters', {})
-        conversation_id = path_params.get('id')
+        # For Lambda Function URLs, parse from rawPath
+        # For API Gateway, use pathParameters
+        conversation_id = None
+        
+        if 'requestContext' in event and 'http' in event.get('requestContext', {}):
+            # Lambda Function URL format - parse from rawPath
+            path = event.get('rawPath', '')
+            if path.startswith('/conversations/'):
+                conversation_id = path.split('/conversations/')[-1]
+                logger.info(f"Extracted conversation_id from rawPath for DELETE: {conversation_id}")
+        else:
+            # API Gateway format - use pathParameters
+            path_params = event.get('pathParameters', {})
+            conversation_id = path_params.get('id')
         
         if not conversation_id:
             return {
