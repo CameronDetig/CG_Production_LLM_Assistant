@@ -198,37 +198,61 @@ def select_conversation(title: str) -> List[Dict[str, str]]:
     """
     global current_conversation_id
     
+    print(f"[DEBUG] select_conversation called with title: {title}, type: {type(title)}")
+    
     if not current_token or not title:
+        print(f"[DEBUG] Returning empty - current_token: {bool(current_token)}, title: {title}")
         return []
+    
+    # Handle different Gradio versions - title might be a list or string
+    if isinstance(title, list):
+        if not title:
+            print("[DEBUG] Title is empty list, returning empty")
+            return []
+        title = title[0]  # Take first element if it's a list
+        print(f"[DEBUG] Extracted title from list: {title}")
     
     # Look up conversation_id from title
     conversation_id = conversation_title_to_id.get(title)
     if not conversation_id:
-        print(f"No conversation found for title: {title}")
+        print(f"[DEBUG] No conversation found for title: {title}")
+        print(f"[DEBUG] Available titles in map: {list(conversation_title_to_id.keys())}")
         return []
     
+    print(f"[DEBUG] Found conversation_id: {conversation_id}")
     current_conversation_id = conversation_id
     
     try:
+        url = f"{API_ENDPOINT}/conversations/{conversation_id}"
+        print(f"[DEBUG] Making request to: {url}")
         response = requests.get(
-            f"{API_ENDPOINT}/conversations/{conversation_id}",
+            url,
             headers={'Authorization': f'Bearer {current_token}'},
             timeout=10
         )
+        
+        print(f"[DEBUG] API response status: {response.status_code}")
         
         if response.status_code == 200:
             data = response.json()
             conversation = data.get('conversation', {})
             messages = conversation.get('messages', [])
             
+            print(f"[DEBUG] Loaded {len(messages)} messages")
+            
             # Convert to Gradio 6.0 chat format (list of dicts with role and content)
             history = []
             for msg in messages:
+                # Skip messages with None or empty content
+                content = msg.get('content')
+                if content is None:
+                    content = ''
                 history.append({
                     'role': msg['role'],
-                    'content': msg['content']
+                    'content': content
                 })
             
+            print(f"[DEBUG] Returning history with {len(history)} messages")
             return history
         else:
             return []
@@ -457,7 +481,10 @@ def chat_with_backend(
         message_content = f"{message_content}\n\n![Uploaded Image](data:image/jpeg;base64,{img_b64})"
     
     history.append({'role': 'user', 'content': message_content})
-    yield history, "", None, gr.update()  # Clear inputs immediately
+    
+    # Add thinking placeholder BEFORE the request starts
+    history.append({'role': 'assistant', 'content': '⏳ Thinking...'})
+    yield history, "", None, gr.update()  # Show thinking immediately
     
     try:
         # Send request
@@ -471,15 +498,12 @@ def chat_with_backend(
         
         if response.status_code != 200:
             error_msg = f"❌ Error: API returned status {response.status_code}"
-            history.append({'role': 'assistant', 'content': error_msg})
+            history[-1] = {'role': 'assistant', 'content': error_msg}
             yield history, "", None, gr.update()
             return
         
         # Stream response
         accumulated_response = ""
-        
-        # Add placeholder for assistant response
-        history.append({'role': 'assistant', 'content': ''})
         
         for text, thumbs, conv_id in parse_sse_stream(response):
             accumulated_response = text
@@ -506,7 +530,7 @@ def chat_with_backend(
         yield history, "", None, gr.update()
 
 
-# Custom CSS to fix password input styling
+# Custom CSS for styling and loading animation
 custom_css = """
 /* Fix password and text inputs showing white background before focus */
 input[type="password"],
@@ -576,7 +600,8 @@ with gr.Blocks(title="CG Production Assistant") as demo:
         with gr.Column(scale=3):
             chatbot = gr.Chatbot(
                 label="Chat",
-                height=500
+                height=500,
+                elem_id="main-chatbot"
             )
             
             
