@@ -10,7 +10,7 @@ import psycopg2
 from psycopg2 import pool
 from psycopg2.extras import RealDictCursor
 
-from src.services.s3_thumbnail_utils import get_thumbnail_url
+from src.services.s3_thumbnail_utils import get_thumbnail_url, get_file_download_url
 
 logger = logging.getLogger()
 
@@ -54,13 +54,13 @@ def release_connection(conn):
 
 def _add_thumbnail_urls(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """
-    Add presigned thumbnail URLs to search results.
+    Add presigned thumbnail URLs and download URLs to search results.
     
     Args:
         results: List of database query results
         
     Returns:
-        Results with thumbnail_url field added
+        Results with thumbnail_url and download_url fields added
     """
     for result in results:
         # The column is 'thumbnail_path' from whichever child table was joined
@@ -72,6 +72,17 @@ def _add_thumbnail_urls(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             result['thumbnail_url'] = get_thumbnail_url(thumbnail_path)
         else:
             result['thumbnail_url'] = None
+        
+        # Generate download URL for source files (especially .blend files)
+        file_path = result.get('file_path')
+        file_type = result.get('file_type')
+        file_name = result.get('file_name', '')
+        
+        # Generate download URL for .blend files and other downloadable types
+        if file_path and (file_type == 'blend' or file_name.endswith('.blend')):
+            result['download_url'] = get_file_download_url(file_path)
+        else:
+            result['download_url'] = None
     
     return results
 
