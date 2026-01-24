@@ -1,7 +1,8 @@
 """
-S3 utilities for thumbnail management.
-Handles presigned URL generation for secure thumbnail access.
+S3 utilities for thumbnail and file management.
+Handles presigned URL generation for secure thumbnail and source file access.
 Thumbnails are organized by show: show_name/file_type/file_id_thumb.jpg
+Source files are in a separate bucket.
 """
 
 import os
@@ -17,7 +18,9 @@ s3_client = boto3.client('s3', region_name=os.environ.get('AWS_REGION', 'us-east
 
 # Configuration
 BUCKET_NAME = os.environ.get('THUMBNAIL_BUCKET', 'cg-production-thumbnails')
+SOURCE_BUCKET = os.environ.get('SOURCE_BUCKET', 'cg-production-data')
 DEFAULT_EXPIRATION = int(os.environ.get('THUMBNAIL_URL_EXPIRATION', '3600'))  # 1 hour
+SOURCE_URL_EXPIRATION = int(os.environ.get('SOURCE_URL_EXPIRATION', '3600'))  # 1 hour for downloads
 
 
 def get_thumbnail_url(thumbnail_path: str, expiration: int = DEFAULT_EXPIRATION) -> Optional[str]:
@@ -60,6 +63,54 @@ def get_thumbnail_url(thumbnail_path: str, expiration: int = DEFAULT_EXPIRATION)
         return None
     except Exception as e:
         logger.error(f"Unexpected error generating presigned URL: {str(e)}", exc_info=True)
+        return None
+
+
+def get_file_download_url(file_path: str, expiration: int = SOURCE_URL_EXPIRATION) -> Optional[str]:
+    """
+    Generate presigned URL for source file download.
+    
+    Args:
+        file_path: S3 key for the source file (from files.file_path column)
+        expiration: URL expiration time in seconds (default: 3600 = 1 hour)
+        
+    Returns:
+        Presigned URL string for downloading the file, or None if generation fails
+        
+    Example:
+        >>> url = get_file_download_url('shows/charge/assets/character.blend')
+        >>> print(url)
+        'https://cg-production-data.s3.amazonaws.com/shows/charge/assets/character.blend?X-Amz-Algorithm=...'
+    """
+    if not file_path:
+        return None
+    
+    try:
+        # Remove any s3:// prefix if present
+        key = file_path
+        if key.startswith('s3://'):
+            # Extract the key part after bucket name
+            parts = key.replace('s3://', '').split('/', 1)
+            if len(parts) > 1:
+                key = parts[1]
+        
+        # Generate presigned URL for download
+        url = s3_client.generate_presigned_url(
+            'get_object',
+            Params={
+                'Bucket': SOURCE_BUCKET,
+                'Key': key
+            },
+            ExpiresIn=expiration
+        )
+        
+        return url
+        
+    except ClientError as e:
+        logger.error(f"Error generating download URL for {file_path}: {str(e)}", exc_info=True)
+        return None
+    except Exception as e:
+        logger.error(f"Unexpected error generating download URL: {str(e)}", exc_info=True)
         return None
 
 
