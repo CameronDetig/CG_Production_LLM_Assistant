@@ -24,8 +24,8 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
           
-          # Initialize git if needed
-          git init
+          # Initialize git with main as default branch
+          git init -b main
           git remote add hf https://cameron-d:$HF_TOKEN@huggingface.co/spaces/cameron-d/cg-production-assistant
           
           # Add all files and commit
