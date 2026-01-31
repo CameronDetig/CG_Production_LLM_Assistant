@@ -117,8 +117,9 @@ def create_chat_agent() -> StateGraph:
 
 def query_router(state: ChatAgentState) -> ChatAgentState:
     """
-    Enhance the user's query using conversation history and database structure.
-    Extracts intent and clarifies what the user is looking for.
+    Determine if the user's query is database-related or general.
+    If it is database related, enhance the user's query using conversation history and database structure and extract intent.
+    If it is general, answer the question directly and set final_answer to the answer.
     """
     start_time = time.time()
     logger.info("Prompt enhancement node - Analyzing user query")
