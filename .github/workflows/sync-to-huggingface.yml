@@ -1,4 +1,4 @@
-name: Sync Frontend to Hugging Face
+name: Sync Gradio Frontend to Hugging Face
 
 on:
   push:
