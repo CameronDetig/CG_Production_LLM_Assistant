@@ -1,0 +1,36 @@
+name: Sync Frontend to Hugging Face
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'frontend_gradio/**'
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Push to Hugging Face Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          cd frontend_gradio
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          
+          # Initialize git if needed
+          git init
+          git remote add hf https://cameron-d:$HF_TOKEN@huggingface.co/spaces/cameron-d/cg-production-assistant
+          
+          # Add all files and commit
+          git add .
+          git commit -m "Sync from GitHub: ${{ github.sha }}" || echo "No changes to commit"
+          
+          # Force push to Hugging Face
+          git push hf main --force
