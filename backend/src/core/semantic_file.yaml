@@ -85,6 +85,7 @@ tables:
           - code
           - spreadsheet
           - document
+          - cache
           - unknown
       - name: extension
         data_type: character_varying(50)
@@ -214,6 +215,18 @@ tables:
       - name: thumbnail_path
         data_type: character_varying(1024)
         description: Path to 512x512 JPG thumbnail. Format is show/image/file_id_thumb.jpg
+      - name: is_sequence
+        data_type: boolean
+        description: Indicates if this is an image sequence (multiple numbered files treated as one entry).
+      - name: sequence_start_frame
+        data_type: integer
+        description: Starting frame number for image sequences.
+      - name: sequence_end_frame
+        data_type: integer
+        description: Ending frame number for image sequences.
+      - name: sequence_frame_count
+        data_type: integer
+        description: Total number of frames in the image sequence.
       - name: visual_embedding
         data_type: vector(512)
         description: "An embedding vector of this file's thumbnail image. Uses CLIP model with 512 dimensions. Used to compare the similarity of images and to search for images using text prompts."
@@ -376,6 +389,38 @@ tables:
         description: Approximate word count.
 
 
+  - name: caches
+    description: Cache/simulation file-specific metadata (physics caches, Alembic, VDB, geometry caches)
+    primary_key:
+      - name: id
+        data_type: integer
+        description: The id specific to cache files in this table.
+    columns:
+      - name: file_id
+        data_type: integer
+        description: ID number of the file, relates to the ID from the "files" table.
+      - name: cache_type
+        data_type: character_varying(50)
+        description: Type of cache file.
+        sample_values:
+          - physics
+          - alembic
+          - vdb
+          - geometry
+      - name: is_sequence
+        data_type: boolean
+        description: Indicates if this is a cache sequence (numerical sequence of files saved as a single entry).
+      - name: sequence_start_frame
+        data_type: integer
+        description: Starting frame number for cache sequences.
+      - name: sequence_end_frame
+        data_type: integer
+        description: Ending frame number for cache sequences.
+      - name: sequence_frame_count
+        data_type: integer
+        description: Total number of frames in the cache sequence.
+
+
   - name: unknown_files
     description: Metadata for all other files that don't fit into the above categories.
     primary_key:
@@ -468,6 +513,16 @@ relationships:
     join_type: left_outer
     relationship_type: many_to_one
     description: Each document entry references a single file in the files table
+
+  - name: caches_to_files
+    left_table: caches
+    right_table: files
+    relationship_columns:
+      - left_column: file_id
+        right_column: id
+    join_type: left_outer
+    relationship_type: many_to_one
+    description: Each cache entry references a single file in the files table
 
   - name: unknown_files_to_files
     left_table: unknown_files
