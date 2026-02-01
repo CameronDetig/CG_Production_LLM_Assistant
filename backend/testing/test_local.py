@@ -132,16 +132,33 @@ def test_bedrock_connection():
         
         bedrock = boto3.client('bedrock-runtime', region_name=region)
         
-        # Simple test prompt
-        test_prompt = "<|begin_of_text|><|start_header_id|>user<|end_header_id|>\n\nHello!<|eot_id|><|start_header_id|>assistant<|end_header_id|>\n\n"
+        # Simple test prompt (generic structure)
+        test_prompt = "Hello! Who are you?"
         
-        response = bedrock.invoke_model(
-            modelId=model_id,
-            body=json.dumps({
+        # Determine parameters and body structure based on model
+        if "llama" in model_id.lower():
+            # Llama on Bedrock (often uses prompt + max_gen_len)
+            # Note: newer Llama 3 on Bedrock might also support/prefer messages, 
+            # but legacy/custom setups often use the completion API.
+            body = {
                 "prompt": test_prompt,
                 "max_gen_len": 50,
                 "temperature": 0.7
-            })
+            }
+        else:
+            # Assume OpenAI-like / Chat format for others (like openai.gpt-oss-...)
+            # This expects a "messages" array
+            body = {
+                "messages": [
+                    {"role": "user", "content": test_prompt}
+                ],
+                "max_tokens": 50,
+                "temperature": 0.7
+            }
+
+        response = bedrock.invoke_model(
+            modelId=model_id,
+            body=json.dumps(body)
         )
         
         print(f"✅ Bedrock connected successfully!")
