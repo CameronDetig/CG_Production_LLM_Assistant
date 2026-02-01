@@ -109,20 +109,55 @@ def signup_via_backend(email: str, password: str) -> Tuple[Optional[str], str]:
         return None, f"❌ Error: {str(e)}"
 
 
-def demo_login() -> Tuple[Optional[str], str]:
-    """Quick login with demo account."""
-    # For local testing, skip actual authentication
+def demo_login() -> Tuple[Optional[str], str, Any, Any, Any, Any, Any, Any, Any]:
+    """
+    Quick login with demo account.
+    Returns updates for UI components to unlock them upon success.
+    """
     global current_token, current_user_id
     
+    # helper for component updates
+    def get_updates(is_logged_in: bool):
+        if is_logged_in:
+            return (
+                gr.update(interactive=True), # new_conv_btn
+                gr.update(interactive=True), # conversations_list
+                gr.update(interactive=True), # refresh_convs_btn
+                gr.update(interactive=True), # delete_conv_btn
+                gr.update(interactive=True), # image_upload
+                gr.update(interactive=True), # msg_input
+                gr.update(interactive=True)  # send_btn
+            )
+        else:
+            return (
+                gr.update(), # new_conv_btn
+                gr.update(), # conversations_list
+                gr.update(), # refresh_convs_btn
+                gr.update(), # delete_conv_btn
+                gr.update(), # image_upload
+                gr.update(), # msg_input
+                gr.update()  # send_btn
+            )
+
     if 'localhost' in API_ENDPOINT or '127.0.0.1' in API_ENDPOINT:
         # Local testing mode - skip Cognito auth
         current_token = 'local-test-token'
         current_user_id = DEMO_EMAIL
-        return current_token, f"✅ Logged in as {current_user_id} (local mode)"
+        return (
+            current_token, 
+            f"✅ Logged in as {current_user_id} (local mode)",
+            *get_updates(True)
+        )
     
     # Production mode - use real Cognito auth
     token, message = authenticate_via_backend(DEMO_EMAIL, DEMO_PASSWORD)
-    return token, message
+    
+    is_success = token is not None
+    return (
+        token, 
+        message,
+        *get_updates(is_success)
+    )
 
 
 def logout() -> str:
@@ -598,22 +633,22 @@ with gr.Blocks(title="CG Production Assistant") as demo:
                 label="Authorization Status", 
                 interactive=False,
                 lines=2,
-                value="✅ Logged in as demo@cgassistant.com (auto-login)"
+                value="⏳ Connecting to backend (this may take ~30s for cold start)..."
             )
             
             gr.Markdown("### 💬 Conversations")
             
-            new_conv_btn = gr.Button("➕ New Conversation", variant="primary")
+            new_conv_btn = gr.Button("➕ New Conversation", variant="primary", interactive=False)
             conversations_list = gr.Dropdown(
                 label="Your Conversations",
                 choices=[],
                 value=None,
                 allow_custom_value=True,
-                interactive=True
+                interactive=False
             )
             with gr.Row():
-                refresh_convs_btn = gr.Button("🔄 Refresh", scale=1)
-                delete_conv_btn = gr.Button("🗑️ Delete Selected", variant="stop", scale=1)
+                refresh_convs_btn = gr.Button("🔄 Refresh", scale=1, interactive=False)
+                delete_conv_btn = gr.Button("🗑️ Delete Selected", variant="stop", scale=1, interactive=False)
         
         # Main chat area
         with gr.Column(scale=3):
@@ -630,7 +665,8 @@ with gr.Blocks(title="CG Production Assistant") as demo:
                     image_upload = gr.Image(
                         label="Upload Image for Visual Search",
                         type="pil",
-                        height=150
+                        height=150,
+                        interactive=False
                     )
                     clear_image_btn = gr.Button("Clear Image", size="sm")
                 
@@ -639,9 +675,10 @@ with gr.Blocks(title="CG Production Assistant") as demo:
                     msg_input = gr.Textbox(
                         label="Message",
                         placeholder="Ask questions about the database...",
-                        lines=3
+                        lines=3,
+                        interactive=False
                     )
-                    send_btn = gr.Button("Send", variant="primary")
+                    send_btn = gr.Button("Send", variant="primary", interactive=False)
     
     # Helper function for signup with password confirmation
     def signup_with_confirmation(email: str, password: str, confirm_password: str) -> Tuple[Optional[str], str]:
@@ -725,7 +762,17 @@ with gr.Blocks(title="CG Production Assistant") as demo:
     
     demo.load(
         fn=demo_login,
-        outputs=[gr.State(), auth_status]
+        outputs=[
+            gr.State(), 
+            auth_status,
+            new_conv_btn,
+            conversations_list,
+            refresh_convs_btn,
+            delete_conv_btn,
+            image_upload,
+            msg_input,
+            send_btn
+        ]
     ).then(
         fn=load_conversations_no_selection,
         outputs=conversations_list

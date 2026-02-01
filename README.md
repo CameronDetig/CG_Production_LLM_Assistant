@@ -19,7 +19,7 @@ Providing information on a database of CG production assets based on natural lan
 ## 🏗️ Architecture Overview
 
 ```
-Gradio UI (Hugging Face) → API Gateway → Lambda → Bedrock (Llama 3.2)
+Gradio UI (Hugging Face) → API Gateway → Lambda → Bedrock LLMs
                                           ↓
                                     PostgreSQL (RDS)
 ```

@@ -6,7 +6,28 @@ All prompt building is handled in chat_agent.py.
 import os
 import logging
 from typing import Union, Iterator
+import langchain_aws.chat_models.bedrock_converse as bedrock_converse_module
 from langchain_aws import ChatBedrock
+
+# Monkey patch to handle 'reasoningContent' in Bedrock Converse API response
+# Use a safe-guard to avoid infinite recursion if patched multiple times
+if not getattr(bedrock_converse_module, "_is_patched_for_reasoning", False):
+    _original_bedrock_to_lc = bedrock_converse_module._bedrock_to_lc
+
+    def _bedrock_to_lc_patched(content):
+        # Filter out reasoningContent blocks which cause validation errors in current langchain-aws
+        filtered_content = []
+        for block in content:
+            if "reasoningContent" in block:
+                # content is list regarding to the implementation of bedrock_converse
+                # We log it for visibility but exclude it from LangChain parsing to prevent crash
+                logging.getLogger(__name__).info("Skipping reasoningContent block from model response")
+                continue
+            filtered_content.append(block)
+        return _original_bedrock_to_lc(filtered_content)
+
+    bedrock_converse_module._bedrock_to_lc = _bedrock_to_lc_patched
+    bedrock_converse_module._is_patched_for_reasoning = True
 
 logger = logging.getLogger()
 
@@ -35,15 +56,30 @@ def _get_bedrock_client(streaming: bool = False, temperature: float = 0.7, max_t
     # Create new client if none exists or if parameters changed significantly
     # (LangChain clients are lightweight, so we recreate for different streaming modes)
     if _bedrock_client is None or _bedrock_client.streaming != streaming:
+        # Determine model-specific parameters
+        model_kwargs = {
+            "temperature": temperature,
+            "top_p": 0.9,
+        }
+        
+        # Llama models use max_gen_len, others typically use max_tokens
+        # We also enable Converse API for 'openai' models to bypass provider checks
+        # and handle standard message formats better
+        use_converse_api = False
+        if "llama" in model_id.lower():
+            model_kwargs["max_gen_len"] = max_tokens
+        else:
+            # Assuming openai.gpt-oss-20b-1:0 and others follow standard naming
+            model_kwargs["max_tokens"] = max_tokens
+            if "openai" in model_id.lower():
+                use_converse_api = True
+
         _bedrock_client = ChatBedrock(
             model_id=model_id,
             region_name=region,
-            model_kwargs={
-                "temperature": temperature,
-                "max_gen_len": max_tokens,
-                "top_p": 0.9,
-            },
+            model_kwargs=model_kwargs,
             streaming=streaming,
+            beta_use_converse_api=use_converse_api,
         )
         logger.info(f"Created Bedrock client: {model_id} (streaming={streaming})")
     
