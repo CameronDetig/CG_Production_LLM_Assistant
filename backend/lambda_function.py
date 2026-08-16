@@ -74,6 +74,15 @@ def sanitize_for_json(obj: Any) -> Any:
     return obj
 
 
+def unauthorized_response() -> Dict[str, Any]:
+    """Standard 401 response for requests missing a valid Cognito token."""
+    return {
+        'statusCode': 401,
+        'headers': get_cors_headers(),
+        'body': json.dumps({'error': 'Authentication required'})
+    }
+
+
 def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
     """
     Main Lambda handler for chatbot requests.
@@ -165,9 +174,8 @@ def handle_chat(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
         # Extract user from JWT token
         user_id = extract_user_from_event(event)
         if not user_id:
-            # Allow anonymous for demo (or require auth by returning 401)
-            user_id = 'anonymous'
-            logger.warning("No valid auth token, using anonymous user")
+            logger.warning("No valid auth token for /chat, rejecting request")
+            return unauthorized_response()
         
         logger.info(f"Processing query from user {user_id}: {query[:100]}")
         
@@ -387,9 +395,8 @@ def handle_list_conversations(event: Dict[str, Any], context: Any) -> Dict[str, 
     try:
         user_id = extract_user_from_event(event)
         if not user_id:
-            # Allow anonymous for local testing (same as /chat endpoint)
-            user_id = 'anonymous'
-            logger.warning("No valid auth token for /conversations, using anonymous user")
+            logger.warning("No valid auth token for /conversations, rejecting request")
+            return unauthorized_response()
         
         from src.services.conversations import list_conversations
         conversations = list_conversations(user_id, limit=50)
@@ -419,9 +426,8 @@ def handle_get_conversation(event: Dict[str, Any], context: Any) -> Dict[str, An
     try:
         user_id = extract_user_from_event(event)
         if not user_id:
-            # Allow anonymous for local testing (same as /chat endpoint)
-            user_id = 'anonymous'
-            logger.warning("No valid auth token for /conversations/{id}, using anonymous user")
+            logger.warning("No valid auth token for /conversations/{id}, rejecting request")
+            return unauthorized_response()
         
         # Extract conversation_id from path
         # For Lambda Function URLs, parse from rawPath
@@ -669,9 +675,8 @@ def handle_delete_conversation(event: Dict[str, Any], context: Any) -> Dict[str,
     try:
         user_id = extract_user_from_event(event)
         if not user_id:
-            # Allow anonymous for local testing (same as /chat endpoint)
-            user_id = 'anonymous'
-            logger.warning("No valid auth token for DELETE /conversations/{id}, using anonymous user")
+            logger.warning("No valid auth token for DELETE /conversations/{id}, rejecting request")
+            return unauthorized_response()
         
         # Extract conversation_id from path
         # For Lambda Function URLs, parse from rawPath

@@ -14,8 +14,7 @@ from langgraph.graph import StateGraph, END
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 
 # Import services
-from psycopg2.extras import RealDictCursor
-from src.services.database import get_connection, release_connection, _add_thumbnail_urls
+from src.services.database import execute_generated_sql
 from src.services.bedrock_client import invoke_bedrock
 from src.services.embeddings import (
     generate_text_embedding,
@@ -470,32 +469,18 @@ def result_evaluation_node(state: ChatAgentState) -> ChatAgentState:
         return state
     
     try:
-        conn = get_connection()
-        cursor = conn.cursor(cursor_factory=RealDictCursor)
-        
-        # Validate query is SELECT only
-        sql_upper = state['sql_query'].strip().upper()
-        if not sql_upper.startswith('SELECT') and not sql_upper.startswith('WITH'):
-            raise ValueError("Only SELECT queries are allowed")
-        
-        # Execute query
+        # Validates the query is a single read-only SELECT (real parse-tree
+        # check, not a prefix match) and executes it under a DB role that
+        # only has SELECT granted - see database.execute_generated_sql.
         exec_start = time.time()
-        cursor.execute(state['sql_query'])
-        results = cursor.fetchall()
-        logger.info(f"Query executed in {time.time() - exec_start:.2f}s, returned {len(results)} rows")
-        
-        # Convert to list of dicts and add thumbnail URLs
-        state['query_results'] = [dict(row) for row in results]
-        state['query_results'] = _add_thumbnail_urls(state['query_results'])
-        
+        state['query_results'] = execute_generated_sql(state['sql_query'])
+        logger.info(f"Query executed in {time.time() - exec_start:.2f}s, returned {len(state['query_results'])} rows")
+
         # Update query history with results
         if state['sql_query_history']:
             state['sql_query_history'][-1]['results'] = state['query_results']
             state['sql_query_history'][-1]['result_count'] = len(state['query_results'])
-        
-        cursor.close()
-        release_connection(conn)
-        
+
     except Exception as e:
         error_msg = str(e)
         logger.error(f"Error executing SQL: {error_msg}", exc_info=True)
@@ -527,10 +512,7 @@ def result_evaluation_node(state: ChatAgentState) -> ChatAgentState:
             logger.info(f"SQL error on attempt {state['attempt_count'] + 1}, will retry with feedback")
         
         state['attempt_count'] += 1
-        
-        if conn:
-            release_connection(conn)
-        
+
         return state
     
     # Generate CSV-formatted results for display
