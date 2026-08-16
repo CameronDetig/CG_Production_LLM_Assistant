@@ -6,6 +6,9 @@ __pycache__/
 # Environment variables
 .env
 
+# AWS config dumps (contain live credentials, e.g. from aws lambda get-function-configuration)
+lambda_config.json
+
 # downloaded embedding models
 model_cache/
 
