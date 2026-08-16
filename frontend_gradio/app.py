@@ -666,7 +666,7 @@ with gr.Blocks(title="CG Production Assistant") as demo:
                         label="Upload Image for Visual Search",
                         type="pil",
                         height=150,
-                        interactive=False
+                        interactive=True
                     )
                     clear_image_btn = gr.Button("Clear Image", size="sm")
                 
@@ -676,7 +676,7 @@ with gr.Blocks(title="CG Production Assistant") as demo:
                         label="Message",
                         placeholder="Ask questions about the database...",
                         lines=3,
-                        interactive=False
+                        interactive=True
                     )
                     send_btn = gr.Button("Send", variant="primary", interactive=False)
     
@@ -762,6 +762,7 @@ with gr.Blocks(title="CG Production Assistant") as demo:
     
     demo.load(
         fn=demo_login,
+        inputs=None,
         outputs=[
             gr.State(), 
             auth_status,
@@ -772,7 +773,8 @@ with gr.Blocks(title="CG Production Assistant") as demo:
             image_upload,
             msg_input,
             send_btn
-        ]
+        ],
+        show_progress='minimal'
     ).then(
         fn=load_conversations_no_selection,
         outputs=conversations_list
