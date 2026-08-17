@@ -1,0 +1,85 @@
+name: Deploy Backend to AWS Lambda
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_ACCOUNT_ID: "001879457662"
+  ECR_REGION: us-east-1
+  ECR_REPO_NAME: cg-chatbot
+  LAMBDA_FUNCTION_NAME: cg-production-chatbot
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/github-actions-cg-chatbot-deploy
+          aws-region: ${{ env.ECR_REGION }}
+
+      - name: Log in to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Determine next version tag
+        id: version
+        run: |
+          LATEST_VERSION=$(aws ecr describe-images \
+            --repository-name "$ECR_REPO_NAME" \
+            --region "$ECR_REGION" \
+            --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[?starts_with(@, `v`)] | [0]' \
+            --output text 2>/dev/null || echo "none")
+
+          if [ "$LATEST_VERSION" == "none" ] || [ -z "$LATEST_VERSION" ]; then
+            NEW_VERSION="v1"
+          else
+            VERSION_NUM=${LATEST_VERSION#v}
+            NEW_VERSION="v$((VERSION_NUM + 1))"
+          fi
+
+          echo "Deploying version $NEW_VERSION"
+          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Build and push image
+        working-directory: backend
+        env:
+          ECR_URI: ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPO_NAME }}
+          NEW_VERSION: ${{ steps.version.outputs.new_version }}
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --provenance=false \
+            --sbom=false \
+            --push \
+            -t "$ECR_URI:$NEW_VERSION" \
+            -t "$ECR_URI:latest" \
+            .
+
+      - name: Update Lambda function code
+        env:
+          ECR_URI: ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPO_NAME }}
+          NEW_VERSION: ${{ steps.version.outputs.new_version }}
+        run: |
+          aws lambda update-function-code \
+            --function-name "$LAMBDA_FUNCTION_NAME" \
+            --image-uri "$ECR_URI:$NEW_VERSION" \
+            --region "$ECR_REGION" \
+            --no-cli-pager
+
+          aws lambda wait function-updated \
+            --function-name "$LAMBDA_FUNCTION_NAME" \
+            --region "$ECR_REGION"
+
+          echo "Deployed $NEW_VERSION successfully"
