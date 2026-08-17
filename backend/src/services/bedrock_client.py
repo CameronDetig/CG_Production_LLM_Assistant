@@ -50,7 +50,7 @@ def _get_bedrock_client(streaming: bool = False, temperature: float = 0.7, max_t
     """
     global _bedrock_client
     
-    model_id = os.environ.get('BEDROCK_MODEL_ID', 'meta.llama4-scout-17b-instruct-v1:0')
+    model_id = os.environ.get('BEDROCK_MODEL_ID', 'openai.gpt-oss-20b-1:0')
     region = os.environ.get('AWS_REGION', 'us-east-1')
     
     # Create new client if none exists or if parameters changed significantly

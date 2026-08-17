@@ -128,3 +128,9 @@ if [ "$status" == "Successful" ]; then
 else
     echo "⏳ Deployment in progress. Check AWS Console for status."
 fi
+
+# Cap log retention so CloudWatch Logs don't grow unbounded (idempotent, safe to re-run)
+aws logs put-retention-policy \
+    --log-group-name "/aws/lambda/${LAMBDA_FUNCTION_NAME}" \
+    --retention-in-days 30 \
+    --region ${ECR_REGION} 2>/dev/null || true

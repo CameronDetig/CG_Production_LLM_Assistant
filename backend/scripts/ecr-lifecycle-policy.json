@@ -1,0 +1,15 @@
+{
+  "rules": [
+    {
+      "rulePriority": 1,
+      "description": "Keep only the last 3 tagged images",
+      "selection": {
+        "tagStatus": "tagged",
+        "tagPrefixList": ["v"],
+        "countType": "imageCountMoreThan",
+        "countNumber": 3
+      },
+      "action": { "type": "expire" }
+    }
+  ]
+}

@@ -1,6 +1,6 @@
 # CG Production LLM Assistant
 
-AWS Lambda backend for AI chatbot with Bedrock (Llama 3.2) and PostgreSQL integration.
+AWS Lambda backend for AI chatbot with Bedrock (OpenAI GPT-OSS 20B) and PostgreSQL integration.
 Providing information on a database of CG production assets based on natural language queries.
 
 ## 📋 Table of Contents
@@ -26,7 +26,7 @@ Gradio UI (Hugging Face) → API Gateway → Lambda → Bedrock LLMs
 
 **Components:**
 - **Lambda Function**: Handles chatbot logic, streaming responses, semantic search
-- **Amazon Bedrock**: Llama 3.2 11B Instruct model for AI responses
+- **Amazon Bedrock**: OpenAI GPT-OSS 20B model for AI responses
 - **RDS PostgreSQL with pgvector**: Stores Blender file metadata + embeddings
 - **Embedding Models**: sentence-transformers (text) + CLIP (images)
 - **API Gateway**: REST API with Server-Sent Events (SSE) for streaming
@@ -44,7 +44,7 @@ Gradio UI (Hugging Face) → API Gateway → Lambda → Bedrock LLMs
 
 ### Required AWS Services Access
 
-- Amazon Bedrock (Llama models)
+- Amazon Bedrock (OpenAI OSS models)
 - AWS Lambda
 - Amazon RDS (PostgreSQL)
 - Amazon API Gateway
@@ -54,28 +54,18 @@ Gradio UI (Hugging Face) → API Gateway → Lambda → Bedrock LLMs
 
 ## 🚀 AWS Setup Guide (Step-by-Step)
 
-### Step 1: Enable Amazon Bedrock Models
+### Step 1: Verify Amazon Bedrock Model Access
 
-> **Important**: Bedrock models must be enabled before use.
+> **Note**: OpenAI's `gpt-oss-20b` / `gpt-oss-120b` models are available to all Bedrock accounts by default — no "Request model access" step needed, unlike Meta/Anthropic models.
 
 1. **Log into AWS Console**: https://console.aws.amazon.com/
 2. **Navigate to Bedrock**:
    - Search for "Bedrock" in the top search bar
    - Click "Amazon Bedrock"
 3. **Select Region**: Make sure you're in **us-east-1** (top-right corner)
-4. **Enable Model Access**:
+4. **Verify Access**:
    - Click "Model access" in the left sidebar
-   - Click "Manage model access" (orange button)
-   - Find **Meta** section
-   - Check the boxes for:
-     - ✅ Llama 3.2 11B Instruct
-     - ✅ Llama 3.1 70B Instruct (optional, for complex queries)
-   - Click "Request model access" at the bottom
-   - Wait 1-2 minutes for approval (usually instant)
-
-5. **Verify Access**:
-   - Refresh the page
-   - Status should show "Access granted" (green)
+   - Confirm `gpt-oss-20b` (under **OpenAI**) shows "Access granted" (green). If not, open the model catalog and select it once — no request/approval wait is required.
 
 ---
 
@@ -98,8 +88,8 @@ Gradio UI (Hugging Face) → API Gateway → Lambda → Bedrock LLMs
      - **Master password**: Create a strong password (save this!)
    
 3. **Configure Instance**:
-   - **Instance class**: `db.t3.micro` (cheapest, ~$15/month)
-   - **Storage**: 20 GB (default)
+   - **Instance class**: `db.t4g.micro` (Graviton/ARM — ~15% cheaper than the x86 `db.t3.micro` at the same 2 vCPU / 1 GiB spec, ~$11.68/month)
+   - **Storage**: 20 GB, type `gp3` (~20% cheaper per GB than the default `gp2`, same baseline performance)
    - **Public access**: Yes (for now, for easier setup)
    - **VPC security group**: Create new → name it `cg-db-security-group`
 
@@ -191,7 +181,7 @@ Lambda needs permissions to access Bedrock and RDS.
      DB_PASSWORD = your_password
      DB_PORT = 5432
      AWS_REGION = us-east-1
-     BEDROCK_MODEL_ID = meta.llama3-2-11b-instruct-v1:0
+     BEDROCK_MODEL_ID = openai.gpt-oss-20b-1:0
      ```
    - Click "Save"
 
@@ -453,15 +443,15 @@ pip install -r requirements.txt -t package/
 |---------|------|
 | Lambda | ~$0.30 |
 | API Gateway | ~$0.004 |
-| Bedrock (Llama 3.2 11B) | ~$1.13 |
-| RDS PostgreSQL (t3.micro) | ~$15 |
-| **Total** | **~$16.43/month** |
+| Bedrock (GPT-OSS 20B, ~2.5k input / 500 output tokens per query) | ~$0.33 |
+| RDS PostgreSQL (t4g.micro, 20GB gp3) | ~$13.28 |
+| **Total** | **~$13.91/month** |
 
 ### Cost Optimization Tips
 
 1. **Use RDS Proxy** - Reduce connection overhead
 2. **Cache common queries** - Store in Lambda memory
-3. **Use smaller model** - Llama 3.2 11B instead of 70B
+3. **Keep the smaller model** - `gpt-oss-20b` instead of `gpt-oss-120b` unless query complexity requires it
 4. **Set up billing alerts**:
    - AWS Console → Billing → Budgets
    - Create budget with $20 threshold
@@ -502,7 +492,7 @@ Uncomment `store_conversation()` in `lambda_function.py` and create DynamoDB tab
 
 ### Model Routing
 
-Use `select_model()` in `bedrock_client.py` to automatically choose between Llama 11B and 70B based on query complexity.
+Add a `select_model()` helper in `bedrock_client.py` to automatically choose between `gpt-oss-20b` and `gpt-oss-120b` based on query complexity.
 
 ---
 

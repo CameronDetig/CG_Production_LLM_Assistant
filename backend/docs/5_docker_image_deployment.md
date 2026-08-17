@@ -251,13 +251,21 @@ See `docs/dynamodb_vpc_endpoint_setup.md` for detailed instructions.
 
 - **ECR Storage**: ~$0.10/GB/month (~$0.05/month for this image)
 - **Lambda**: Same pricing as ZIP deployment
-- **Tip**: Delete old ECR images to save storage costs
+- **Tip**: `redeploy_image.sh` auto-increments version tags (v1, v2, v3, ...) on every deploy and never deletes old ones, so apply the lifecycle policy below once so old versions expire automatically instead of accumulating indefinitely:
+
+```bash
+# One-time setup: keep only the last 3 tagged images, expire the rest
+aws ecr put-lifecycle-policy \
+    --repository-name $REPO_NAME \
+    --lifecycle-policy-text file://scripts/ecr-lifecycle-policy.json \
+    --region $REGION
+```
 
 ```bash
 # List images
 aws ecr list-images --repository-name $REPO_NAME --region $REGION
 
-# Delete specific image
+# Delete a specific image manually if needed
 aws ecr batch-delete-image \
     --repository-name $REPO_NAME \
     --image-ids imageTag=old-tag \
