@@ -1,0 +1,7 @@
+{
+  "component": "assistant",
+  "repository": "CameronDetig/CG_Production_LLM_Assistant",
+  "workflow": ".github/workflows/deploy-backend.yml",
+  "state_bucket": "cg-assistant-terraform-001879457662-us-east-1",
+  "ecr_uri": "001879457662.dkr.ecr.us-east-1.amazonaws.com/cg-chatbot"
+}

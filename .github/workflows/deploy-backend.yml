@@ -1,85 +1,127 @@
-name: Deploy Backend to AWS Lambda
-
+name: Plan assistant release
 on:
-  workflow_dispatch: {}
-
+  push:
+    branches: [main]
+    paths: ['backend/**', 'infra/**', '.github/workflows/deploy-backend.yml', '.github/workflows/approve-release.yml']
+  workflow_dispatch:
+    inputs:
+      image_digest:
+        description: 'Rollback: retained sha256 digest; blank reuses the current image'
+        type: string
+        default: ''
+      adoption:
+        description: 'Import-only baseline; reject effective resource changes'
+        type: boolean
+        default: false
 permissions:
-  id-token: write
   contents: read
-
+concurrency:
+  group: terraform-production
+  cancel-in-progress: false
 env:
-  AWS_ACCOUNT_ID: "001879457662"
-  ECR_REGION: us-east-1
-  ECR_REPO_NAME: cg-chatbot
-  LAMBDA_FUNCTION_NAME: cg-production-chatbot
-
+  AWS_REGION: us-east-1
+  AWS_DEFAULT_REGION: us-east-1
+  TF_IN_AUTOMATION: 'true'
+  ECR_URI: 001879457662.dkr.ecr.us-east-1.amazonaws.com/cg-chatbot
 jobs:
-  deploy:
+  build:
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    outputs:
+      image_uri: ${{ steps.image.outputs.uri }}
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Configure AWS credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+      - uses: actions/checkout@v4
         with:
-          role-to-assume: arn:aws:iam::${{ env.AWS_ACCOUNT_ID }}:role/github-actions-cg-chatbot-deploy
-          aws-region: ${{ env.ECR_REGION }}
-
-      - name: Log in to Amazon ECR
-        id: ecr-login
-        uses: aws-actions/amazon-ecr-login@v2
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Determine next version tag
-        id: version
+          fetch-depth: 0
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.7
+          terraform_wrapper: false
+      - name: Validate configuration and release guards
         run: |
-          LATEST_VERSION=$(aws ecr describe-images \
-            --repository-name "$ECR_REPO_NAME" \
-            --region "$ECR_REGION" \
-            --query 'sort_by(imageDetails,& imagePushedAt)[-1].imageTags[?starts_with(@, `v`)] | [0]' \
-            --output text 2>/dev/null || echo "none")
-
-          if [ "$LATEST_VERSION" == "none" ] || [ -z "$LATEST_VERSION" ]; then
-            NEW_VERSION="v1"
-          else
-            VERSION_NUM=${LATEST_VERSION#v}
-            NEW_VERSION="v$((VERSION_NUM + 1))"
+          terraform -chdir=infra fmt -check
+          terraform -chdir=infra init -backend=false -input=false -lockfile=readonly
+          terraform -chdir=infra validate
+          python -m unittest discover -s infra/tools -p 'test_*.py'
+      - name: Detect application changes
+        id: changes
+        env:
+          BEFORE: ${{ github.event.before }}
+          EVENT: ${{ github.event_name }}
+        run: |
+          changed=false
+          if [ "$EVENT" = push ]; then
+            if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
+              changed=true
+            elif ! git diff --quiet "$BEFORE" "$GITHUB_SHA" -- backend; then
+              changed=true
+            fi
           fi
-
-          echo "Deploying version $NEW_VERSION"
-          echo "new_version=$NEW_VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Build and push image
-        working-directory: backend
-        env:
-          ECR_URI: ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPO_NAME }}
-          NEW_VERSION: ${{ steps.version.outputs.new_version }}
+          echo "build=$changed" >> "$GITHUB_OUTPUT"
+      - uses: aws-actions/configure-aws-credentials@v4
+        if: steps.changes.outputs.build == 'true'
+        with:
+          role-to-assume: arn:aws:iam::001879457662:role/github-cg-assistant-build
+          aws-region: us-east-1
+      - uses: aws-actions/amazon-ecr-login@v2
+        if: steps.changes.outputs.build == 'true'
+      - uses: docker/setup-buildx-action@v3
+        if: steps.changes.outputs.build == 'true'
+      - name: Build or reuse commit image
+        if: steps.changes.outputs.build == 'true'
+        id: image
+        shell: bash
         run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --provenance=false \
-            --sbom=false \
-            --push \
-            -t "$ECR_URI:$NEW_VERSION" \
-            -t "$ECR_URI:latest" \
-            .
-
-      - name: Update Lambda function code
+          set -euo pipefail
+          tag="sha-$GITHUB_SHA"
+          digest=$(aws ecr describe-images --repository-name cg-chatbot --image-ids "imageTag=$tag" --query 'imageDetails[0].imageDigest' --output text 2>/dev/null || true)
+          if [ -z "$digest" ]; then
+            available=$(df -Pk . | awk 'NR==2 {print $4}')
+            if [ "$available" -lt 25000000 ]; then
+              echo 'Build needs at least 25 GB free disk. Select a larger GitHub runner.' >&2
+              exit 1
+            fi
+            docker buildx build --platform linux/amd64 --provenance=false --sbom=false --push -t "$ECR_URI:$tag" backend
+            digest=$(aws ecr describe-images --repository-name cg-chatbot --image-ids "imageTag=$tag" --query 'imageDetails[0].imageDigest' --output text)
+          fi
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          echo "uri=$ECR_URI@$digest" >> "$GITHUB_OUTPUT"
+  plan:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.7
+          terraform_wrapper: false
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::001879457662:role/github-cg-assistant-plan
+          aws-region: us-east-1
+      - name: Save private plan for review
         env:
-          ECR_URI: ${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPO_NAME }}
-          NEW_VERSION: ${{ steps.version.outputs.new_version }}
+          BUILT_IMAGE: ${{ needs.build.outputs.image_uri }}
+          ROLLBACK_DIGEST: ${{ inputs.image_digest }}
+          ADOPTION: ${{ inputs.adoption }}
         run: |
-          aws lambda update-function-code \
-            --function-name "$LAMBDA_FUNCTION_NAME" \
-            --image-uri "$ECR_URI:$NEW_VERSION" \
-            --region "$ECR_REGION" \
-            --no-cli-pager
-
-          aws lambda wait function-updated \
-            --function-name "$LAMBDA_FUNCTION_NAME" \
-            --region "$ECR_REGION"
-
-          echo "Deployed $NEW_VERSION successfully"
+          set -euo pipefail
+          if [ "$ADOPTION" = true ]; then
+            python infra/tools/release.py plan --adoption
+          else
+            image="$BUILT_IMAGE"
+            if [ -n "$ROLLBACK_DIGEST" ]; then
+              [[ "$ROLLBACK_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+              aws ecr describe-images --repository-name cg-chatbot --image-ids "imageDigest=$ROLLBACK_DIGEST" > /dev/null
+              image="$ECR_URI@$ROLLBACK_DIGEST"
+            elif [ -z "$image" ]; then
+              image=$(python infra/tools/image.py)
+            fi
+            python infra/tools/release.py plan --image-uri "$image"
+          fi

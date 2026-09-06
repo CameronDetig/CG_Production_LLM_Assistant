@@ -1,0 +1,84 @@
+{
+  "import": [
+    {
+      "to": "aws_ecr_repository.application",
+      "id": "cg-chatbot"
+    },
+    {
+      "to": "aws_ecr_lifecycle_policy.application",
+      "id": "cg-chatbot"
+    },
+    {
+      "to": "aws_ecr_repository_policy.application",
+      "id": "cg-chatbot"
+    },
+    {
+      "to": "aws_lambda_function.assistant",
+      "id": "cg-production-chatbot"
+    },
+    {
+      "to": "aws_lambda_function_url.assistant",
+      "id": "cg-production-chatbot"
+    },
+    {
+      "to": "aws_lambda_permission.function_url",
+      "id": "cg-production-chatbot/FunctionURLAllowPublicAccess"
+    },
+    {
+      "to": "aws_iam_role.assistant",
+      "id": "cg-chatbot-lambda-role"
+    },
+    {
+      "to": "aws_iam_role_policy_attachment.assistant_CloudWatchLogsFullAccess",
+      "id": "cg-chatbot-lambda-role/arn:aws:iam::aws:policy/CloudWatchLogsFullAccess"
+    },
+    {
+      "to": "aws_iam_role_policy_attachment.assistant_AWSLambdaBasicExecutionRole",
+      "id": "cg-chatbot-lambda-role/arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+    },
+    {
+      "to": "aws_iam_role_policy_attachment.assistant_AmazonS3FullAccess",
+      "id": "cg-chatbot-lambda-role/arn:aws:iam::aws:policy/AmazonS3FullAccess"
+    },
+    {
+      "to": "aws_iam_role_policy_attachment.assistant_AmazonBedrockFullAccess",
+      "id": "cg-chatbot-lambda-role/arn:aws:iam::aws:policy/AmazonBedrockFullAccess"
+    },
+    {
+      "to": "aws_iam_role_policy_attachment.assistant_AWSLambdaVPCAccessExecutionRole_6a27889e_714f_404f_b7ac_34687fe19ca7",
+      "id": "cg-chatbot-lambda-role/arn:aws:iam::001879457662:policy/service-role/AWSLambdaVPCAccessExecutionRole-6a27889e-714f-404f-b7ac-34687fe19ca7"
+    },
+    {
+      "to": "aws_iam_policy.assistant_AWSLambdaVPCAccessExecutionRole_6a27889e_714f_404f_b7ac_34687fe19ca7",
+      "id": "arn:aws:iam::001879457662:policy/service-role/AWSLambdaVPCAccessExecutionRole-6a27889e-714f-404f-b7ac-34687fe19ca7"
+    },
+    {
+      "to": "aws_iam_role_policy.assistant_DynamoDBConversationsAccess",
+      "id": "cg-chatbot-lambda-role:DynamoDBConversationsAccess"
+    },
+    {
+      "to": "aws_iam_role_policy.assistant_S3ThumbnailAccess",
+      "id": "cg-chatbot-lambda-role:S3ThumbnailAccess"
+    },
+    {
+      "to": "aws_cognito_user_pool.users",
+      "id": "us-east-1_olfysYmLE"
+    },
+    {
+      "to": "aws_cognito_user_pool_client.assistant",
+      "id": "us-east-1_olfysYmLE/7fjti9ulrj9rgoq0lgs9g8eobg"
+    },
+    {
+      "to": "aws_cognito_user_pool_domain.users",
+      "id": "us-east-1olfysymle"
+    },
+    {
+      "to": "aws_dynamodb_table.conversations",
+      "id": "cg-chatbot-conversations"
+    },
+    {
+      "to": "aws_cloudwatch_log_group.application",
+      "id": "/aws/lambda/cg-production-chatbot"
+    }
+  ]
+}

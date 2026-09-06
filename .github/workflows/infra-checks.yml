@@ -1,0 +1,23 @@
+name: Infrastructure checks
+on:
+  pull_request:
+    paths: ['infra/**', '.github/workflows/**']
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.7
+          terraform_wrapper: false
+      - run: |
+          terraform -chdir=infra fmt -check
+          terraform -chdir=infra init -backend=false -input=false -lockfile=readonly
+          terraform -chdir=infra validate
+          terraform -chdir=infra/bootstrap fmt -check
+          terraform -chdir=infra/bootstrap init -backend=false -input=false -lockfile=readonly
+          terraform -chdir=infra/bootstrap validate
+          python -m unittest discover -s infra/tools -p 'test_*.py'

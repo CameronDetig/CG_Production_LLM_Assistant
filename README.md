@@ -1,5 +1,7 @@
 # CG Production LLM Assistant
 
+AWS infrastructure and independent releases are managed in [infra/](infra/README.md). The parent repository is not required.
+
 AWS Lambda backend for AI chatbot with Bedrock (OpenAI GPT-OSS 20B) and PostgreSQL integration.
 Providing information on a database of CG production assets based on natural language queries.
 

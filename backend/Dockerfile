@@ -1,21 +1,16 @@
 # Multi-stage Dockerfile for AWS Lambda Container
 # 
-# This uses a two-stage build to avoid compilation errors in the Lambda base image:
-# - Stage 1: Build dependencies in python:3.11-slim (has modern build tools)
-# - Stage 2: Copy built packages to Lambda base image
+# This uses a two-stage build on the Lambda Python base image so compiled wheels
+# are compatible with Lambda's operating-system ABI.
+# - Stage 1: Install dependencies and preload models
+# - Stage 2: Copy the prepared application into the runtime image
 #
 # IMPORTANT: Build with these flags to ensure Lambda compatibility:
 #   docker buildx build --platform linux/amd64 --provenance=false --sbom=false --load -t cg-chatbot .
 #
-# Stage 1: Build dependencies in a full Python environment
-FROM python:3.11-slim AS builder
-
-# Install build dependencies
-RUN apt-get update && apt-get install -y \
-    gcc \
-    g++ \
-    make \
-    && rm -rf /var/lib/apt/lists/*
+# Stage 1: Build dependencies in a Lambda-compatible environment.
+# All dependencies below are required as wheels, so a compiler toolchain is not needed.
+FROM public.ecr.aws/lambda/python:3.11 AS builder
 
 # Create a directory for dependencies
 WORKDIR /install
@@ -33,12 +28,9 @@ RUN PYTHONPATH=/install python download_models.py
 # Copy requirements and install the rest of the dependencies
 COPY requirements.txt .
 RUN pip install \
-    --platform manylinux2014_x86_64 \
     --only-binary=:all: \
     --target /install \
     --no-cache-dir \
-    --python-version 311 \
-    --implementation cp \
     -r requirements.txt
 
 # Stage 2: Copy to Lambda base image

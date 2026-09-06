@@ -1,0 +1,154 @@
+{
+  "resource": {
+    "aws_s3_bucket": {
+      "terraform": {
+        "bucket": "cg-assistant-terraform-001879457662-us-east-1",
+        "lifecycle": {
+          "prevent_destroy": true
+        }
+      }
+    },
+    "aws_s3_bucket_versioning": {
+      "terraform": {
+        "bucket": "${aws_s3_bucket.terraform.id}",
+        "versioning_configuration": [
+          {
+            "status": "Enabled"
+          }
+        ]
+      }
+    },
+    "aws_s3_bucket_server_side_encryption_configuration": {
+      "terraform": {
+        "bucket": "${aws_s3_bucket.terraform.id}",
+        "rule": [
+          {
+            "apply_server_side_encryption_by_default": [
+              {
+                "sse_algorithm": "AES256"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "aws_s3_bucket_public_access_block": {
+      "terraform": {
+        "bucket": "${aws_s3_bucket.terraform.id}",
+        "block_public_acls": true,
+        "block_public_policy": true,
+        "ignore_public_acls": true,
+        "restrict_public_buckets": true
+      }
+    },
+    "aws_s3_bucket_policy": {
+      "terraform": {
+        "bucket": "${aws_s3_bucket.terraform.id}",
+        "policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Deny\", \"Principal\": \"*\", \"Action\": \"s3:*\", \"Resource\": [\"arn:aws:s3:::cg-assistant-terraform-001879457662-us-east-1\", \"arn:aws:s3:::cg-assistant-terraform-001879457662-us-east-1/*\"], \"Condition\": {\"Bool\": {\"aws:SecureTransport\": \"false\"}}}]}"
+      }
+    },
+    "aws_s3_bucket_lifecycle_configuration": {
+      "plans": {
+        "bucket": "${aws_s3_bucket.terraform.id}",
+        "depends_on": [
+          "aws_s3_bucket_versioning.terraform"
+        ],
+        "rule": [
+          {
+            "id": "expire-private-plans",
+            "status": "Enabled",
+            "filter": [
+              {
+                "prefix": "plans/"
+              }
+            ],
+            "expiration": [
+              {
+                "days": 2
+              }
+            ],
+            "noncurrent_version_expiration": [
+              {
+                "noncurrent_days": 2
+              }
+            ],
+            "abort_incomplete_multipart_upload": [
+              {
+                "days_after_initiation": 1
+              }
+            ]
+          }
+        ]
+      }
+    },
+    "aws_iam_role": {
+      "build": {
+        "name": "github-cg-assistant-build",
+        "assume_role_policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Principal\": {\"Federated\": \"arn:aws:iam::001879457662:oidc-provider/token.actions.githubusercontent.com\"}, \"Action\": \"sts:AssumeRoleWithWebIdentity\", \"Condition\": {\"StringEquals\": {\"token.actions.githubusercontent.com:aud\": \"sts.amazonaws.com\", \"token.actions.githubusercontent.com:sub\": \"repo:CameronDetig/CG_Production_LLM_Assistant:ref:refs/heads/main\"}}}]}",
+        "max_session_duration": 3600
+      },
+      "plan": {
+        "name": "github-cg-assistant-plan",
+        "assume_role_policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Principal\": {\"Federated\": \"arn:aws:iam::001879457662:oidc-provider/token.actions.githubusercontent.com\"}, \"Action\": \"sts:AssumeRoleWithWebIdentity\", \"Condition\": {\"StringEquals\": {\"token.actions.githubusercontent.com:aud\": \"sts.amazonaws.com\", \"token.actions.githubusercontent.com:sub\": \"repo:CameronDetig/CG_Production_LLM_Assistant:ref:refs/heads/main\"}}}]}",
+        "max_session_duration": 3600
+      },
+      "apply": {
+        "name": "github-cg-assistant-apply",
+        "assume_role_policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Principal\": {\"Federated\": \"arn:aws:iam::001879457662:oidc-provider/token.actions.githubusercontent.com\"}, \"Action\": \"sts:AssumeRoleWithWebIdentity\", \"Condition\": {\"StringEquals\": {\"token.actions.githubusercontent.com:aud\": \"sts.amazonaws.com\", \"token.actions.githubusercontent.com:sub\": \"repo:CameronDetig/CG_Production_LLM_Assistant:environment:production\"}}}]}",
+        "max_session_duration": 3600
+      }
+    },
+    "aws_iam_policy": {
+      "build_0": {
+        "name": "github-cg-assistant-build-0",
+        "policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Action\": [\"ecr:GetAuthorizationToken\"], \"Resource\": \"*\"}, {\"Effect\": \"Allow\", \"Action\": [\"ecr:BatchCheckLayerAvailability\", \"ecr:InitiateLayerUpload\", \"ecr:UploadLayerPart\", \"ecr:CompleteLayerUpload\", \"ecr:PutImage\", \"ecr:DescribeImages\", \"ecr:BatchGetImage\", \"ecr:GetDownloadUrlForLayer\"], \"Resource\": \"arn:aws:ecr:us-east-1:001879457662:repository/cg-chatbot\"}]}"
+      },
+      "plan_0": {
+        "name": "github-cg-assistant-plan-0",
+        "policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Action\": [\"ec2:Describe*\", \"rds:Describe*\", \"batch:Describe*\", \"batch:List*\", \"logs:Describe*\", \"logs:ListTagsForResource\", \"cognito-idp:DescribeUserPoolDomain\", \"dynamodb:Describe*\", \"dynamodb:ListTagsOfResource\", \"kms:DescribeKey\"], \"Resource\": \"*\"}, {\"Effect\": \"Allow\", \"Action\": [\"iam:GetRole\", \"iam:ListRolePolicies\", \"iam:ListAttachedRolePolicies\", \"iam:GetRolePolicy\", \"iam:GetPolicy\", \"iam:GetPolicyVersion\", \"iam:ListPolicyVersions\", \"iam:ListInstanceProfilesForRole\"], \"Resource\": [\"arn:aws:iam::001879457662:policy/service-role/AWSLambdaVPCAccessExecutionRole-6a27889e-714f-404f-b7ac-34687fe19ca7\", \"arn:aws:iam::001879457662:role/cg-chatbot-lambda-role\"]}, {\"Effect\": \"Allow\", \"Action\": [\"ecr:Describe*\", \"ecr:GetLifecyclePolicy\", \"ecr:GetRepositoryPolicy\", \"ecr:ListTagsForResource\"], \"Resource\": \"arn:aws:ecr:us-east-1:001879457662:repository/cg-chatbot\"}, {\"Effect\": \"Allow\", \"Action\": [\"s3:GetBucket*\", \"s3:GetEncryptionConfiguration\", \"s3:GetLifecycleConfiguration\", \"s3:GetAccelerateConfiguration\", \"s3:GetReplicationConfiguration\", \"s3:GetBucketObjectLockConfiguration\", \"s3:ListBucket\"], \"Resource\": [\"arn:aws:s3:::cg-production-data\", \"arn:aws:s3:::cg-production-data-thumbnails\"]}, {\"Effect\": \"Allow\", \"Action\": [\"secretsmanager:DescribeSecret\", \"secretsmanager:GetResourcePolicy\"], \"Resource\": \"arn:aws:secretsmanager:us-east-1:001879457662:secret:cg-metadata-db/database-url-*\"}, {\"Effect\": \"Allow\", \"Action\": [\"ssm:GetParameter\", \"ssm:ListTagsForResource\"], \"Resource\": \"arn:aws:ssm:us-east-1:001879457662:parameter/cg-production/prod/shared/v1\"}, {\"Effect\": \"Allow\", \"Action\": [\"lambda:GetFunction\", \"lambda:GetFunctionConfiguration\", \"lambda:GetFunctionUrlConfig\", \"lambda:GetPolicy\", \"lambda:GetFunctionConcurrency\", \"lambda:GetRuntimeManagementConfig\", \"lambda:ListVersionsByFunction\", \"lambda:ListTags\", \"lambda:GetFunctionCodeSigningConfig\"], \"Resource\": \"arn:aws:lambda:us-east-1:001879457662:function:cg-production-chatbot\"}, {\"Effect\": \"Allow\", \"Action\": [\"s3:ListBucket\", \"s3:GetBucketLocation\"], \"Resource\": \"arn:aws:s3:::cg-assistant-terraform-001879457662-us-east-1\"}, {\"Effect\": \"Allow\", \"Action\": [\"cognito-idp:DescribeUserPool\", \"cognito-idp:DescribeUserPoolClient\", \"cognito-idp:GetUserPoolMfaConfig\", \"cognito-idp:ListTagsForResource\"], \"Resource\": \"arn:aws:cognito-idp:us-east-1:001879457662:userpool/us-east-1_olfysYmLE\"}]}"
+      },
+      "plan_8": {
+        "name": "github-cg-assistant-plan-8",
+        "policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Action\": [\"s3:GetObject\"], \"Resource\": \"arn:aws:s3:::cg-assistant-terraform-001879457662-us-east-1/state/production.tfstate\"}, {\"Effect\": \"Allow\", \"Action\": [\"s3:GetObject\", \"s3:PutObject\", \"s3:DeleteObject\"], \"Resource\": \"arn:aws:s3:::cg-assistant-terraform-001879457662-us-east-1/state/production.tfstate.tflock\"}, {\"Effect\": \"Allow\", \"Action\": [\"s3:GetObject\", \"s3:PutObject\"], \"Resource\": \"arn:aws:s3:::cg-assistant-terraform-001879457662-us-east-1/plans/*\"}]}"
+      },
+      "apply_0": {
+        "name": "github-cg-assistant-apply-0",
+        "policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Action\": [\"ec2:Describe*\", \"rds:Describe*\", \"batch:Describe*\", \"batch:List*\", \"logs:Describe*\", \"logs:ListTagsForResource\", \"cognito-idp:DescribeUserPoolDomain\", \"dynamodb:Describe*\", \"dynamodb:ListTagsOfResource\", \"kms:DescribeKey\"], \"Resource\": \"*\"}, {\"Effect\": \"Allow\", \"Action\": [\"iam:GetRole\", \"iam:ListRolePolicies\", \"iam:ListAttachedRolePolicies\", \"iam:GetRolePolicy\", \"iam:GetPolicy\", \"iam:GetPolicyVersion\", \"iam:ListPolicyVersions\", \"iam:ListInstanceProfilesForRole\"], \"Resource\": [\"arn:aws:iam::001879457662:policy/service-role/AWSLambdaVPCAccessExecutionRole-6a27889e-714f-404f-b7ac-34687fe19ca7\", \"arn:aws:iam::001879457662:role/cg-chatbot-lambda-role\"]}, {\"Effect\": \"Allow\", \"Action\": [\"ecr:Describe*\", \"ecr:GetLifecyclePolicy\", \"ecr:GetRepositoryPolicy\", \"ecr:ListTagsForResource\"], \"Resource\": \"arn:aws:ecr:us-east-1:001879457662:repository/cg-chatbot\"}, {\"Effect\": \"Allow\", \"Action\": [\"s3:GetBucket*\", \"s3:GetEncryptionConfiguration\", \"s3:GetLifecycleConfiguration\", \"s3:GetAccelerateConfiguration\", \"s3:GetReplicationConfiguration\", \"s3:GetBucketObjectLockConfiguration\", \"s3:ListBucket\"], \"Resource\": [\"arn:aws:s3:::cg-production-data\", \"arn:aws:s3:::cg-production-data-thumbnails\"]}, {\"Effect\": \"Allow\", \"Action\": [\"secretsmanager:DescribeSecret\", \"secretsmanager:GetResourcePolicy\"], \"Resource\": \"arn:aws:secretsmanager:us-east-1:001879457662:secret:cg-metadata-db/database-url-*\"}, {\"Effect\": \"Allow\", \"Action\": [\"ssm:GetParameter\", \"ssm:ListTagsForResource\"], \"Resource\": \"arn:aws:ssm:us-east-1:001879457662:parameter/cg-production/prod/shared/v1\"}, {\"Effect\": \"Allow\", \"Action\": [\"lambda:GetFunction\", \"lambda:GetFunctionConfiguration\", \"lambda:GetFunctionUrlConfig\", \"lambda:GetPolicy\", \"lambda:GetFunctionConcurrency\", \"lambda:GetRuntimeManagementConfig\", \"lambda:ListVersionsByFunction\", \"lambda:ListTags\", \"lambda:GetFunctionCodeSigningConfig\"], \"Resource\": \"arn:aws:lambda:us-east-1:001879457662:function:cg-production-chatbot\"}, {\"Effect\": \"Allow\", \"Action\": [\"s3:ListBucket\", \"s3:GetBucketLocation\"], \"Resource\": \"arn:aws:s3:::cg-assistant-terraform-001879457662-us-east-1\"}, {\"Effect\": \"Allow\", \"Action\": [\"cognito-idp:DescribeUserPool\", \"cognito-idp:DescribeUserPoolClient\", \"cognito-idp:GetUserPoolMfaConfig\", \"cognito-idp:ListTagsForResource\"], \"Resource\": \"arn:aws:cognito-idp:us-east-1:001879457662:userpool/us-east-1_olfysYmLE\"}]}"
+      },
+      "apply_8": {
+        "name": "github-cg-assistant-apply-8",
+        "policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Action\": [\"s3:GetObject\", \"s3:PutObject\"], \"Resource\": \"arn:aws:s3:::cg-assistant-terraform-001879457662-us-east-1/state/production.tfstate\"}, {\"Effect\": \"Allow\", \"Action\": [\"s3:GetObject\", \"s3:PutObject\", \"s3:DeleteObject\"], \"Resource\": \"arn:aws:s3:::cg-assistant-terraform-001879457662-us-east-1/state/production.tfstate.tflock\"}, {\"Effect\": \"Allow\", \"Action\": [\"s3:GetObject\"], \"Resource\": \"arn:aws:s3:::cg-assistant-terraform-001879457662-us-east-1/plans/*\"}, {\"Effect\": \"Allow\", \"Action\": [\"iam:UpdateAssumeRolePolicy\", \"iam:UpdateRole\", \"iam:PutRolePolicy\", \"iam:DeleteRolePolicy\", \"iam:AttachRolePolicy\", \"iam:DetachRolePolicy\", \"iam:CreatePolicyVersion\", \"iam:DeletePolicyVersion\", \"iam:SetDefaultPolicyVersion\", \"iam:TagRole\", \"iam:UntagRole\", \"iam:TagPolicy\", \"iam:UntagPolicy\"], \"Resource\": [\"arn:aws:iam::001879457662:policy/service-role/AWSLambdaVPCAccessExecutionRole-6a27889e-714f-404f-b7ac-34687fe19ca7\", \"arn:aws:iam::001879457662:role/cg-chatbot-lambda-role\"]}, {\"Effect\": \"Allow\", \"Action\": [\"iam:PassRole\"], \"Resource\": [\"arn:aws:iam::001879457662:policy/service-role/AWSLambdaVPCAccessExecutionRole-6a27889e-714f-404f-b7ac-34687fe19ca7\", \"arn:aws:iam::001879457662:role/cg-chatbot-lambda-role\"], \"Condition\": {\"StringEquals\": {\"iam:PassedToService\": [\"lambda.amazonaws.com\", \"ecs-tasks.amazonaws.com\"]}}}, {\"Effect\": \"Allow\", \"Action\": [\"ecr:PutLifecyclePolicy\", \"ecr:SetRepositoryPolicy\", \"ecr:PutImageTagMutability\", \"ecr:PutImageScanningConfiguration\", \"ecr:TagResource\", \"ecr:UntagResource\"], \"Resource\": \"arn:aws:ecr:us-east-1:001879457662:repository/cg-chatbot\"}, {\"Effect\": \"Allow\", \"Action\": [\"logs:PutRetentionPolicy\", \"logs:DeleteRetentionPolicy\", \"logs:TagResource\", \"logs:UntagResource\"], \"Resource\": \"arn:aws:logs:us-east-1:001879457662:log-group:/aws/lambda/cg-production-chatbot*\"}, {\"Effect\": \"Allow\", \"Action\": [\"lambda:UpdateFunctionCode\", \"lambda:UpdateFunctionConfiguration\", \"lambda:UpdateFunctionUrlConfig\", \"lambda:AddPermission\", \"lambda:RemovePermission\", \"lambda:PutFunctionConcurrency\", \"lambda:DeleteFunctionConcurrency\", \"lambda:TagResource\", \"lambda:UntagResource\"], \"Resource\": \"arn:aws:lambda:us-east-1:001879457662:function:cg-production-chatbot\"}]}"
+      },
+      "apply_16": {
+        "name": "github-cg-assistant-apply-16",
+        "policy": "{\"Version\": \"2012-10-17\", \"Statement\": [{\"Effect\": \"Allow\", \"Action\": [\"cognito-idp:UpdateUserPool\", \"cognito-idp:UpdateUserPoolClient\", \"cognito-idp:SetUserPoolMfaConfig\", \"cognito-idp:TagResource\", \"cognito-idp:UntagResource\"], \"Resource\": \"arn:aws:cognito-idp:us-east-1:001879457662:userpool/us-east-1_olfysYmLE\"}, {\"Effect\": \"Allow\", \"Action\": [\"dynamodb:UpdateTable\", \"dynamodb:UpdateContinuousBackups\", \"dynamodb:UpdateTimeToLive\", \"dynamodb:TagResource\", \"dynamodb:UntagResource\"], \"Resource\": \"arn:aws:dynamodb:us-east-1:001879457662:table/cg-chatbot-conversations\"}]}"
+      }
+    },
+    "aws_iam_role_policy_attachment": {
+      "build_0": {
+        "role": "${aws_iam_role.build.name}",
+        "policy_arn": "${aws_iam_policy.build_0.arn}"
+      },
+      "plan_0": {
+        "role": "${aws_iam_role.plan.name}",
+        "policy_arn": "${aws_iam_policy.plan_0.arn}"
+      },
+      "plan_8": {
+        "role": "${aws_iam_role.plan.name}",
+        "policy_arn": "${aws_iam_policy.plan_8.arn}"
+      },
+      "apply_0": {
+        "role": "${aws_iam_role.apply.name}",
+        "policy_arn": "${aws_iam_policy.apply_0.arn}"
+      },
+      "apply_8": {
+        "role": "${aws_iam_role.apply.name}",
+        "policy_arn": "${aws_iam_policy.apply_8.arn}"
+      },
+      "apply_16": {
+        "role": "${aws_iam_role.apply.name}",
+        "policy_arn": "${aws_iam_policy.apply_16.arn}"
+      }
+    }
+  }
+}

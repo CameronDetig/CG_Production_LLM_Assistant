@@ -1,3 +1,5 @@
+> Historical manual setup reference. Use the [Terraform adoption and release guide](../../infra/README.md) for current deployment. Live configuration is recorded in `infra/INVENTORY.md`; older settings below may differ.
+
 # Container Deployment Guide
 
 This guide provides step-by-step instructions for deploying the Lambda function using Docker containers.

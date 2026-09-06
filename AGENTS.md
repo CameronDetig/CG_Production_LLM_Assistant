@@ -8,6 +8,8 @@
 
 ## Build, Test, and Development Commands
 
+`infra/` owns the assistant's production AWS resources and reads shared identifiers from SSM. See `infra/README.md` for import/bootstrap steps. Do not use retired direct deployment scripts or depend on the parent repository for releases.
+
 Use separate virtual environments as needed and run commands from the indicated directory:
 
 - `backend/` or `frontend_gradio/`: `python -m pip install -r requirements.txt` installs component dependencies.
@@ -28,7 +30,7 @@ Backend checks are standalone integration scripts; no enforced coverage threshol
 
 ## Commit & Pull Request Guidelines
 
-History uses descriptive subjects without mandatory prefixes. Explain behavior changes, affected clients, configuration changes, and validation in PRs. Commit here and publish the commit before updating the parent submodule reference. Changes to `frontend_gradio/**` pushed to `main` trigger Hugging Face synchronization; backend deployment is manually dispatched.
+History uses descriptive subjects without mandatory prefixes. Explain behavior changes, affected clients, configuration changes, and validation in PRs. Commit here and publish the commit before updating the parent submodule reference. Changes to `frontend_gradio/**` pushed to `main` trigger Hugging Face synchronization; backend changes create a Terraform release plan, and a separate manual approval workflow applies it.
 
 ## Security & Compatibility
 
