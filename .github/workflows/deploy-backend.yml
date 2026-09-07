@@ -33,10 +33,10 @@ jobs:
     outputs:
       image_uri: ${{ steps.image.outputs.uri }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
-      - uses: hashicorp/setup-terraform@v3
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.14.7
           terraform_wrapper: false
@@ -61,7 +61,7 @@ jobs:
             fi
           fi
           echo "build=$changed" >> "$GITHUB_OUTPUT"
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         if: steps.changes.outputs.build == 'true'
         with:
           role-to-assume: arn:aws:iam::001879457662:role/github-cg-assistant-build
@@ -96,12 +96,12 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: hashicorp/setup-terraform@v3
+      - uses: actions/checkout@v5
+      - uses: hashicorp/setup-terraform@v4
         with:
           terraform_version: 1.14.7
           terraform_wrapper: false
-      - uses: aws-actions/configure-aws-credentials@v4
+      - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::001879457662:role/github-cg-assistant-plan
           aws-region: us-east-1
