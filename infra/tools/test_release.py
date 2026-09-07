@@ -1,8 +1,20 @@
 import unittest
-from release import object_key, plan_changes, validate_run, validate_manifest
+from unittest.mock import patch
+
+from release import has_shared_contract, object_key, plan_changes, validate_run, validate_manifest
 
 
 class ReleaseSafetyTests(unittest.TestCase):
+    @patch('release.aws')
+    def test_shared_contract_detected(self, mock_aws):
+        mock_aws.return_value = {'Parameters': [{'Name': '/cg-production/prod/shared/v1'}]}
+        self.assertTrue(has_shared_contract())
+
+    @patch('release.aws')
+    def test_shared_contract_missing(self, mock_aws):
+        mock_aws.return_value = {'Parameters': []}
+        self.assertFalse(has_shared_contract())
+
     def test_destructive_change_rejected(self):
         for actions in [['delete'], ['delete', 'create'], ['create', 'delete']]:
             with self.assertRaises(ValueError):
