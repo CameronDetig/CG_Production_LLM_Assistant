@@ -16,12 +16,21 @@ ROOT = Path(__file__).resolve().parents[1]
 PRIVATE = ROOT / '.private'
 
 
+class CommandError(RuntimeError):
+    """A failed command whose output is retained only in the private log."""
+
+    def __init__(self, args, stdout, stderr):
+        self.stdout = stdout
+        self.stderr = stderr
+        super().__init__(f'{args[0]} {args[1]} failed; details kept in .private/last-error.log')
+
+
 def command(args, *, json_output=False):
     result = subprocess.run(args, cwd=ROOT, capture_output=True, text=True)
     if result.returncode:
         PRIVATE.mkdir(exist_ok=True)
         (PRIVATE / 'last-error.log').write_text(result.stdout + result.stderr, encoding='utf-8')
-        raise RuntimeError(f'{args[0]} {args[1]} failed; details kept in .private/last-error.log')
+        raise CommandError(args, result.stdout, result.stderr)
     return json.loads(result.stdout) if json_output else result.stdout.strip()
 
 
@@ -31,8 +40,15 @@ def aws(*args):
 
 def has_shared_contract():
     name = '/cg-production/prod/shared/v1'
-    data = aws('ssm', 'describe-parameters', '--parameter-filters', f'Key=Name,Option=Equals,Values={name}')
-    return any(parameter.get('Name') == name for parameter in data.get('Parameters', []))
+    try:
+        # This exact-name lookup is authorized by the plan role. DescribeParameters
+        # requires broader account-level permission and is unnecessary here.
+        aws('ssm', 'get-parameter', '--name', name)
+        return True
+    except CommandError as error:
+        if 'ParameterNotFound' in error.stderr:
+            return False
+        raise
 
 
 def plan_changes(plan, *, adoption=False):

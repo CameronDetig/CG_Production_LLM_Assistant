@@ -1,19 +1,27 @@
 import unittest
 from unittest.mock import patch
 
-from release import has_shared_contract, object_key, plan_changes, validate_run, validate_manifest
+from release import CommandError, has_shared_contract, object_key, plan_changes, validate_run, validate_manifest
 
 
 class ReleaseSafetyTests(unittest.TestCase):
     @patch('release.aws')
     def test_shared_contract_detected(self, mock_aws):
-        mock_aws.return_value = {'Parameters': [{'Name': '/cg-production/prod/shared/v1'}]}
         self.assertTrue(has_shared_contract())
+        mock_aws.assert_called_once_with('ssm', 'get-parameter', '--name', '/cg-production/prod/shared/v1')
 
     @patch('release.aws')
     def test_shared_contract_missing(self, mock_aws):
-        mock_aws.return_value = {'Parameters': []}
+        mock_aws.side_effect = CommandError(
+            ['aws', 'ssm'], '', 'An error occurred (ParameterNotFound) when calling the GetParameter operation'
+        )
         self.assertFalse(has_shared_contract())
+
+    @patch('release.aws')
+    def test_shared_contract_access_error_is_not_treated_as_missing(self, mock_aws):
+        mock_aws.side_effect = CommandError(['aws', 'ssm'], '', 'AccessDeniedException')
+        with self.assertRaises(CommandError):
+            has_shared_contract()
 
     def test_destructive_change_rejected(self):
         for actions in [['delete'], ['delete', 'create'], ['create', 'delete']]:
