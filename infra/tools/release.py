@@ -29,6 +29,12 @@ def aws(*args):
     return command(['aws', *args, '--region', 'us-east-1', '--output', 'json', '--no-cli-pager'], json_output=True)
 
 
+def has_shared_contract():
+    name = '/cg-production/prod/shared/v1'
+    data = aws('ssm', 'describe-parameters', '--parameter-filters', f'Key=Name,Option=Equals,Values={name}')
+    return any(parameter.get('Name') == name for parameter in data.get('Parameters', []))
+
+
 def plan_changes(plan, *, adoption=False):
     """Fail closed on destructive changes; never include resource values in output."""
     changes = []
@@ -149,7 +155,9 @@ def main():
         # Preserve current secret delivery. Raw values never leave private files/state.
         function = aws('lambda', 'get-function-configuration', '--function-name', 'cg-production-chatbot')
         variables['lambda_environment'] = function['Environment']['Variables']
-        variables['use_shared_contract'] = not args.adoption
+        variables['use_shared_contract'] = not args.adoption and has_shared_contract()
+        if not args.adoption and not variables['use_shared_contract']:
+            print('Shared contract not found in SSM; planning with current Lambda environment only.')
     else:
         variables['publish_shared_contract'] = not args.adoption
     if image:
