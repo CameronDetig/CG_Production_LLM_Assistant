@@ -76,18 +76,33 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          tag="sha-$GITHUB_SHA"
-          digest=$(aws ecr describe-images --repository-name cg-chatbot --image-ids "imageTag=$tag" --query 'imageDetails[0].imageDigest' --output text 2>/dev/null || true)
+          sha_tag="sha-$GITHUB_SHA"
+          digest=$(aws ecr describe-images --repository-name cg-chatbot --image-ids "imageTag=$sha_tag" --query 'imageDetails[0].imageDigest' --output text 2>/dev/null || true)
+          version=$(aws ecr describe-images --repository-name cg-chatbot --image-ids "imageTag=$sha_tag" --query 'imageDetails[0].imageTags' --output text 2>/dev/null \
+            | tr '\t' '\n' | grep -E '^v[0-9]+$' | sort -V | tail -n 1 || true)
           if [ -z "$digest" ]; then
             available=$(df -Pk . | awk 'NR==2 {print $4}')
             if [ "$available" -lt 25000000 ]; then
               echo 'Build needs at least 25 GB free disk. Select a larger GitHub runner.' >&2
               exit 1
             fi
-            docker buildx build --platform linux/amd64 --provenance=false --sbom=false --push -t "$ECR_URI:$tag" backend
-            digest=$(aws ecr describe-images --repository-name cg-chatbot --image-ids "imageTag=$tag" --query 'imageDetails[0].imageDigest' --output text)
+            latest_version=$(aws ecr describe-images --repository-name cg-chatbot --filter tagStatus=TAGGED --query 'imageDetails[].imageTags[]' --output text \
+              | tr '\t' '\n' | grep -E '^v[0-9]+$' | sed 's/^v//' | sort -n | tail -n 1 || true)
+            version="v$((${latest_version:-0} + 1))"
+            docker buildx build --platform linux/amd64 --provenance=false --sbom=false --push \
+              -t "$ECR_URI:$sha_tag" -t "$ECR_URI:$version" backend
+            digest=$(aws ecr describe-images --repository-name cg-chatbot --image-ids "imageTag=$sha_tag" --query 'imageDetails[0].imageDigest' --output text)
+          elif [ -z "$version" ]; then
+            latest_version=$(aws ecr describe-images --repository-name cg-chatbot --filter tagStatus=TAGGED --query 'imageDetails[].imageTags[]' --output text \
+              | tr '\t' '\n' | grep -E '^v[0-9]+$' | sed 's/^v//' | sort -n | tail -n 1 || true)
+            version="v$((${latest_version:-0} + 1))"
+            manifest=$(aws ecr batch-get-image --repository-name cg-chatbot --image-ids "imageDigest=$digest" \
+              --query 'images[0].imageManifest' --output text)
+            aws ecr put-image --repository-name cg-chatbot --image-tag "$version" --image-manifest "$manifest" > /dev/null
           fi
           [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          [[ "$version" =~ ^v[0-9]+$ ]]
+          echo "Published $version ($sha_tag) at $digest"
           echo "uri=$ECR_URI@$digest" >> "$GITHUB_OUTPUT"
   plan:
     needs: build

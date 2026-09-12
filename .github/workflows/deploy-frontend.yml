@@ -1,0 +1,81 @@
+name: Deploy web frontend
+
+on:
+  pull_request:
+    paths: ["frontend_web/**", ".github/workflows/deploy-frontend.yml"]
+  push:
+    branches: [main]
+    paths: ["frontend_web/**", ".github/workflows/deploy-frontend.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: frontend-production
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  FRONTEND_BUCKET: cg-assistant-web-001879457662-us-east-1
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend_web/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+        working-directory: frontend_web
+      - name: Test
+        run: npm test
+        working-directory: frontend_web
+      - name: Lint
+        run: npm run lint
+        working-directory: frontend_web
+      - name: Build
+        run: npm run build
+        working-directory: frontend_web
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: verify
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend_web/package-lock.json
+      - run: npm ci
+        working-directory: frontend_web
+      - run: npm run build
+        working-directory: frontend_web
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::001879457662:role/github-cg-assistant-frontend-deploy
+          aws-region: us-east-1
+      - name: Publish immutable assets
+        run: >-
+          aws s3 sync frontend_web/dist/assets "s3://$FRONTEND_BUCKET/assets"
+          --delete --cache-control "public,max-age=31536000,immutable"
+      - name: Publish entry point
+        run: >-
+          aws s3 sync frontend_web/dist "s3://$FRONTEND_BUCKET"
+          --delete --exclude "assets/*" --exclude "config.json"
+          --cache-control "no-cache"
+      - name: Invalidate entry point
+        shell: bash
+        run: |
+          distribution_id=$(aws cloudfront list-distributions --query "DistributionList.Items[?Comment=='CG Production Assistant web and API'].Id | [0]" --output text)
+          test -n "$distribution_id" && test "$distribution_id" != "None"
+          aws cloudfront create-invalidation --distribution-id "$distribution_id" --paths "/" "/index.html"

@@ -1,0 +1,5 @@
+{
+  "cognitoDomain": "",
+  "cognitoClientId": "",
+  "oauthScopes": ["openid", "email"]
+}

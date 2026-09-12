@@ -9,6 +9,7 @@ import requests
 import os
 import json
 import base64
+import hashlib
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
@@ -35,6 +36,28 @@ current_conversation_id = None
 conversation_title_to_id = {}  # Maps displayed title to conversation_id
 
 
+def api_headers(token: Optional[str] = None, body: str = "") -> Dict[str, str]:
+    """Headers accepted locally and by the CloudFront Lambda OAC origin."""
+    headers = {
+        'Content-Type': 'application/json',
+        'X-Amz-Content-Sha256': hashlib.sha256(body.encode('utf-8')).hexdigest()
+    }
+    if token:
+        headers['X-Cognito-Token'] = token
+    return headers
+
+
+def post_json(path: str, payload: Dict[str, Any], token: Optional[str] = None, **kwargs):
+    """POST deterministic JSON so CloudFront can verify the supplied body hash."""
+    body = json.dumps(payload, separators=(',', ':'))
+    return requests.post(
+        f"{API_ENDPOINT}{path}",
+        data=body,
+        headers=api_headers(token, body),
+        **kwargs
+    )
+
+
 def authenticate_via_backend(email: str, password: str) -> Tuple[Optional[str], str]:
     """
     Authenticate user via backend /auth endpoint.
@@ -45,9 +68,9 @@ def authenticate_via_backend(email: str, password: str) -> Tuple[Optional[str], 
     global current_token, current_user_id
     
     try:
-        response = requests.post(
-            f"{API_ENDPOINT}/auth",
-            json={
+        response = post_json(
+            "/auth",
+            {
                 'email': email,
                 'password': password
             },
@@ -79,9 +102,9 @@ def signup_via_backend(email: str, password: str) -> Tuple[Optional[str], str]:
     global current_token, current_user_id
     
     try:
-        response = requests.post(
-            f"{API_ENDPOINT}/signup",
-            json={
+        response = post_json(
+            "/signup",
+            {
                 'email': email,
                 'password': password
             },
@@ -186,7 +209,7 @@ def load_conversations() -> List[str]:
     try:
         response = requests.get(
             f"{API_ENDPOINT}/conversations",
-            headers={'Authorization': f'Bearer {current_token}'},
+            headers=api_headers(current_token),
             timeout=10
         )
         
@@ -262,7 +285,7 @@ def select_conversation(title: str) -> List[Dict[str, str]]:
         print(f"[DEBUG] Making request to: {url}")
         response = requests.get(
             url,
-            headers={'Authorization': f'Bearer {current_token}'},
+            headers=api_headers(current_token),
             timeout=10
         )
         
@@ -331,7 +354,7 @@ def delete_conversation(title: str) -> Tuple[str, Any]:
     try:
         response = requests.delete(
             f"{API_ENDPOINT}/conversations/{conversation_id}",
-            headers={'Authorization': f'Bearer {current_token}'},
+            headers=api_headers(current_token),
             timeout=10
         )
         
@@ -518,11 +541,6 @@ def chat_with_backend(
         payload["uploaded_image_base64"] = image_base64
     
     
-    # Prepare headers
-    headers = {'Content-Type': 'application/json'}
-    if current_token:
-        headers['Authorization'] = f'Bearer {current_token}'
-    
     # Add user message to history with uploaded image if present
     message_content = message if message.strip() else "Find similar images to the uploaded image"
     if uploaded_image:
@@ -540,10 +558,10 @@ def chat_with_backend(
     
     try:
         # Send request
-        response = requests.post(
-            f"{API_ENDPOINT}/chat",
-            json=payload,
-            headers=headers,
+        response = post_json(
+            "/chat",
+            payload,
+            current_token,
             stream=True,
             timeout=120
         )

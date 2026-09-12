@@ -34,7 +34,7 @@ This script will:
 
 ### 3. Configure Secrets
 After deployment, go to your Space Settings > Repository Secrets and add:
-- `API_ENDPOINT`: Your Lambda URL
+- `API_ENDPOINT`: The Terraform `frontend_url` output with `/api` appended
 - `DEMO_EMAIL`: `demo@cgassistant.com`
 - `DEMO_PASSWORD`: `DemoPass10!`
 
@@ -107,8 +107,8 @@ If you prefer to deploy manually:
 ### API requests fail
 
 **Error**: "API returned status 403" or "CORS error"
-- **Solution**: Check API Gateway CORS configuration
-- **Solution**: Verify Lambda function has proper permissions
+- **Solution**: Verify the request is using the CloudFront `/api` URL, not the private Lambda Function URL
+- **Solution**: Verify the CloudFront Lambda origin, OAC, and function permissions are deployed
 
 **Error**: "API returned status 500"
 - **Solution**: Check Lambda logs in CloudWatch
@@ -145,7 +145,7 @@ Before deploying to HF Spaces, test locally:
 cd frontend_gradio
 
 # Set environment variables
-export API_ENDPOINT="https://your-api-gateway.com/prod"
+export API_ENDPOINT="https://your-distribution.cloudfront.net/api"
 export DEMO_EMAIL="demo@cgassistant.com"
 export DEMO_PASSWORD="DemoPass10!"
 

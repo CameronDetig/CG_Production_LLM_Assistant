@@ -36,6 +36,9 @@ RUN pip install \
 # Stage 2: Copy to Lambda base image
 FROM public.ecr.aws/lambda/python:3.11
 
+# Pinned Lambda Web Adapter adds HTTP/1.1 response streaming for the Python ASGI app.
+COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.0.1 /lambda-adapter /opt/extensions/lambda-adapter
+
 # Copy the built dependencies from builder stage
 COPY --from=builder /install ${LAMBDA_TASK_ROOT}
 
@@ -44,12 +47,17 @@ COPY --from=builder /install/model_cache ${LAMBDA_TASK_ROOT}/model_cache
 
 # Copy all Python function code
 COPY lambda_function.py ${LAMBDA_TASK_ROOT}/
+COPY api_app.py ${LAMBDA_TASK_ROOT}/
 COPY src/ ${LAMBDA_TASK_ROOT}/src/
 
 # Force offline mode - prevent any network requests
 ENV TRANSFORMERS_OFFLINE=1
 ENV HF_HUB_OFFLINE=1
 ENV HF_DATASETS_OFFLINE=1
+ENV PORT=8080
+ENV AWS_LWA_INVOKE_MODE=response_stream
+ENV AWS_LWA_READINESS_CHECK_PATH=/health
 
-# Set the CMD to your handler
-CMD [ "lambda_function.lambda_handler" ]
+# The adapter launches the ASGI server and maps Lambda Function URL requests to it.
+ENTRYPOINT []
+CMD [ "python", "-m", "uvicorn", "api_app:app", "--host", "0.0.0.0", "--port", "8080" ]

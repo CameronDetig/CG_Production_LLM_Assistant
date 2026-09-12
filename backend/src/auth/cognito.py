@@ -92,6 +92,10 @@ def validate_token(token: str) -> Optional[Dict[str, Any]]:
             audience=COGNITO_CLIENT_ID,
             issuer=COGNITO_ISSUER
         )
+
+        if claims.get('token_use') != 'id':
+            logger.error("Rejected Cognito token with token_use=%s", claims.get('token_use'))
+            return None
         
         logger.info(f"Token validated for user: {claims.get('cognito:username', 'unknown')}")
         return claims

@@ -172,18 +172,10 @@ resource "aws_iam_policy" "assistant_AWSLambdaVPCAccessExecutionRole_6a27889e_71
 }
 
 resource "aws_lambda_function_url" "assistant" {
-  authorization_type = "NONE"
+  authorization_type = "AWS_IAM"
   function_name      = "cg-production-chatbot"
-  invoke_mode        = "BUFFERED"
+  invoke_mode        = "RESPONSE_STREAM"
   region             = "us-east-1"
-  cors {
-    allow_credentials = false
-    allow_headers     = ["*"]
-    allow_methods     = ["*"]
-    allow_origins     = ["*"]
-    expose_headers    = []
-    max_age           = 86400
-  }
 }
 
 resource "aws_cognito_user_pool_domain" "users" {
@@ -293,7 +285,7 @@ resource "aws_cognito_user_pool" "users" {
   lifecycle {
     prevent_destroy = true
   }
-  auto_verified_attributes = []
+  auto_verified_attributes = ["email"]
   deletion_protection      = "ACTIVE"
   mfa_configuration        = "OFF"
   name                     = "cg-production-assistant-user-pool"

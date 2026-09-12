@@ -1,6 +1,6 @@
 # Terraform adoption and independent releases
 
-This repository owns Lambda and its Function URL, Cognito, DynamoDB conversations, ECR, execution roles, and logs. Networking, RDS, and production buckets belong to the metadata extractor repository. The assistant consumes its versioned SSM contract; no parent checkout or shared Terraform state access is needed.
+This repository owns Lambda and its Function URL, Cognito, DynamoDB conversations, ECR, execution roles, logs, and the S3/CloudFront web frontend. Networking, RDS, and production data buckets belong to the metadata extractor repository. The assistant consumes its versioned SSM contract; no parent checkout or shared Terraform state access is needed.
 
 ## Status and boundaries
 
@@ -21,7 +21,7 @@ python infra/tools/check_adoption.py
 
 `inventory.py` only reads AWS; it updates reviewable import IDs and stores raw, potentially secret-bearing material under ignored `.private/`. `check_adoption.py` copies source into a private local backend, runs plan, and rejects effective resource changes. It does not import into remote state or apply anything. Lambda can show one sensitivity-only environment update on first import: before/after values are identical. The checker verifies this rather than hiding environment drift with `ignore_changes`.
 
-The existing account-wide GitHub OIDC provider is referenced, not duplicated or owned by this stack. Bootstrap creates a dedicated encrypted/versioned bucket and separate build, plan, and apply roles. Only the apply role can write production state; neither CI role can access bootstrap state. The extractor additionally creates a scan role. Review before applying:
+The existing account-wide GitHub OIDC provider is referenced, not duplicated or owned by this stack. Bootstrap creates a dedicated encrypted/versioned bucket and separate build, plan, and apply roles. It also grants the plan/apply roles the bounded permissions in `bootstrap/frontend-policy.tf` needed to create and manage the frontend resources. Apply this bootstrap update before planning the frontend release. Only the apply role can write production state; neither CI role can access bootstrap state. The extractor additionally creates a scan role. Review before applying:
 
 ```powershell
 terraform -chdir=infra/bootstrap init
@@ -64,13 +64,22 @@ Adopt and release the extractor first. Its first reviewed normal release publish
 
 The approval workflow is always explicit, with an additional environment-review gate when configured. All release/approval runs share a per-repository concurrency group and native S3 state locking. Saved plan contents are sensitive even when variables are marked sensitive. S3 blocks public access and expires plan objects and noncurrent versions; production state versions have no expiry.
 
-For rollback, dispatch the plan workflow with the retained `sha256:...` image digest, then review/approve the resulting plan. For an infra/configuration rollback, make a reviewed source revert and plan again. Current ECR lifecycle rules are preserved: new `sha-` tags are retained, so rollback images are not automatically removed. Add any future SHA-image cleanup policy separately, accounting for deployed digests.
+For rollback, dispatch the plan workflow with a retained `sha256:...` image digest, then review/approve the resulting plan. For an infra/configuration rollback, make a reviewed source revert and plan again. Each backend build receives both an immutable `sha-<commit>` tag and a sequential `vN` tag. The current ECR lifecycle policy retains the latest three versioned images; add any future retention changes separately, accounting for deployed and rollback digests.
 
-The old direct deployment scripts are disabled to prevent competing ownership. Gradio's Hugging Face synchronization remains independent and unchanged.
+The old direct deployment scripts are disabled to prevent competing ownership. Gradio's Hugging Face synchronization remains active during the validation window and uses the CloudFront `/api` origin.
+
+## Web frontend release order
+
+1. Apply the reviewed `infra/bootstrap` update so CI can inspect and create the new resource types.
+2. Merge and approve the normal assistant Terraform release. This creates the private site/log buckets, CloudFront distribution, WAF, Cognito public client, runtime `config.json`, and frontend deployment role; it also enables Lambda response streaming and CloudFront-only invocation.
+3. Re-run **Deploy web frontend** after the Terraform apply completes. The first automatic run can fail because the deployment role does not exist until step 2. The workflow never overwrites Terraform-owned `config.json`.
+4. Set the Hugging Face Space `API_ENDPOINT` secret to the Terraform `frontend_url` output with `/api` appended, then validate both clients for seven days.
+
+The CloudFront hostname is the only initial public URL. Hashed assets receive immutable caching; HTML is deployed with revalidation and explicitly invalidated. S3 storage/requests, CloudFront, WAF rules/requests, log ingestion/storage, Lambda streaming duration, and Cognito active-user usage can all add cost.
 
 ## Runtime acceptance and operational limits
 
-- Assistant: authenticate with an existing test user; run a chat/search query; verify read-only SQL enforcement, conversation persistence, signed thumbnail/source links, and the existing buffered response behavior. Verify failure responses do not expose credentials. The control-plane smoke check alone does not establish application health.
+- Assistant: authenticate through Cognito managed login; run a chat/search query; verify response chunks arrive before completion, read-only SQL enforcement, conversation persistence, signed thumbnail/source links, image search, and conversation deletion. Confirm the Lambda Function URL rejects direct requests and CloudFront `/api/health` succeeds. Verify failure responses do not expose credentials. The control-plane smoke check alone does not establish application health.
 - Extractor: use small fixtures and an **isolated test database** for a container integration check before a large scan. Check metadata and thumbnail output. The production scan workflow is not this isolated integration test: it uses the production job's database secret.
 - A normal extractor deployment never submits a scan. **Submit metadata scan** requires an explicit non-empty S3 prefix and exact job revision, uses the `production-scan` environment, and sets `OVERRIDE_EXISTING=false`. Concurrent/duplicate scan requests remain an operator responsibility; GitHub serialization covers submission, not job execution.
 - Live Lambda has no VPC attachment while RDS is private. This is preserved during adoption and may prevent database access. Resolve connectivity in a separate reviewed change before claiming end-to-end success; do not make RDS public as part of import.
@@ -85,6 +94,11 @@ terraform -chdir=infra validate
 terraform -chdir=infra/bootstrap init -backend=false -lockfile=readonly
 terraform -chdir=infra/bootstrap validate
 python -m unittest discover -s infra/tools -p 'test_*.py'
+python -m unittest discover -s backend/testing -p 'test_streaming.py'
+npm --prefix frontend_web ci
+npm --prefix frontend_web test
+npm --prefix frontend_web run lint
+npm --prefix frontend_web run build
 ```
 
 Sources: [Terraform imports](https://developer.hashicorp.com/terraform/language/import), [S3 state and locking](https://developer.hashicorp.com/terraform/language/backend/s3), [GitHub OIDC](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-aws), [GitHub environment restrictions](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
