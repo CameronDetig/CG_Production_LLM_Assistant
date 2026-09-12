@@ -109,6 +109,20 @@ def upload(bucket, key, source):
         '--body', str(source), '--server-side-encryption', 'AES256', '--if-none-match', '*')
 
 
+def preserve_ci_error(bucket):
+    """Keep sensitive Terraform diagnostics private but available after CI exits."""
+    run_id = os.environ.get('GITHUB_RUN_ID')
+    attempt = os.environ.get('GITHUB_RUN_ATTEMPT')
+    error_log = PRIVATE / 'last-error.log'
+    if not run_id or not attempt or not error_log.exists():
+        return
+    try:
+        upload(bucket, object_key(run_id, attempt, 'last-error.log'), error_log)
+    except CommandError:
+        # Preserve the original failure; inability to save diagnostics is secondary.
+        pass
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('action', choices=['plan', 'verify', 'apply', 'smoke'])
@@ -182,7 +196,11 @@ def main():
     runtime.write_text(json.dumps(variables), encoding='utf-8')
     command(['terraform', 'init', '-input=false', '-lockfile=readonly', '-backend-config=backend.hcl'])
     saved = PRIVATE / 'release.tfplan'
-    command(['terraform', 'plan', '-input=false', '-lock-timeout=60s', f'-var-file={runtime}', f'-out={saved}'])
+    try:
+        command(['terraform', 'plan', '-input=false', '-lock-timeout=60s', f'-var-file={runtime}', f'-out={saved}'])
+    except CommandError:
+        preserve_ci_error(bucket)
+        raise
     plan = command(['terraform', 'show', '-json', str(saved)], json_output=True)
     changes = plan_changes(plan, adoption=args.adoption)
     summary = json.dumps(changes, indent=2)
