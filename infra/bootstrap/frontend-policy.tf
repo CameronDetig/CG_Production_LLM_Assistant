@@ -14,7 +14,7 @@ resource "aws_iam_policy" "plan_frontend" {
     Statement = [{
       Effect = "Allow"
       Action = [
-        "cloudfront:Get*", "cloudfront:List*",
+        "cloudfront:Get*", "cloudfront:List*", "cloudfront:DescribeFunction",
         "wafv2:Get*", "wafv2:List*",
         "s3:GetBucket*", "s3:GetEncryptionConfiguration", "s3:GetLifecycleConfiguration", "s3:GetObject", "s3:ListBucket",
         "logs:DescribeLogGroups", "logs:ListTagsForResource",
