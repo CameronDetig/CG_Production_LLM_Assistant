@@ -23,6 +23,13 @@ resource "aws_iam_policy" "plan_frontend" {
         "iam:GetRole", "iam:GetRolePolicy", "iam:GetOpenIDConnectProvider", "iam:ListOpenIDConnectProviders", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies",
       ]
       Resource = "*"
+      }, {
+      Effect = "Allow"
+      Action = ["s3:GetAccelerateConfiguration", "s3:GetReplicationConfiguration"]
+      Resource = [
+        "arn:aws:s3:::cg-assistant-web-001879457662-us-east-1",
+        "arn:aws:s3:::cg-assistant-web-logs-001879457662-us-east-1",
+      ]
     }]
   })
 }
