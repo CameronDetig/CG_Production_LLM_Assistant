@@ -30,6 +30,14 @@ resource "aws_iam_policy" "plan_frontend" {
         "arn:aws:s3:::cg-assistant-web-001879457662-us-east-1",
         "arn:aws:s3:::cg-assistant-web-logs-001879457662-us-east-1",
       ]
+      }, {
+      Effect   = "Allow"
+      Action   = "s3:GetObjectTagging"
+      Resource = "arn:aws:s3:::cg-assistant-web-001879457662-us-east-1/config.json"
+      }, {
+      Effect   = "Allow"
+      Action   = "cognito-idp:ListUserPoolClients"
+      Resource = "arn:aws:cognito-idp:us-east-1:001879457662:userpool/us-east-1_olfysYmLE"
     }]
   })
 }
@@ -78,7 +86,7 @@ resource "aws_iam_policy" "apply_frontend" {
       },
       {
         Effect   = "Allow"
-        Action   = ["cognito-idp:CreateUserPoolClient", "cognito-idp:UpdateUserPoolClient", "cognito-idp:DeleteUserPoolClient", "cognito-idp:DescribeUserPoolClient", "cognito-idp:CreateManagedLoginBranding", "cognito-idp:UpdateManagedLoginBranding", "cognito-idp:DeleteManagedLoginBranding", "cognito-idp:DescribeManagedLoginBranding"]
+        Action   = ["cognito-idp:CreateUserPoolClient", "cognito-idp:UpdateUserPoolClient", "cognito-idp:DeleteUserPoolClient", "cognito-idp:DescribeUserPoolClient", "cognito-idp:ListUserPoolClients", "cognito-idp:CreateManagedLoginBranding", "cognito-idp:UpdateManagedLoginBranding", "cognito-idp:DeleteManagedLoginBranding", "cognito-idp:DescribeManagedLoginBranding"]
         Resource = "arn:aws:cognito-idp:us-east-1:001879457662:userpool/us-east-1_olfysYmLE"
       },
       {
