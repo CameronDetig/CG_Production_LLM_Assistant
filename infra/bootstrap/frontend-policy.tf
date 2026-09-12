@@ -20,7 +20,7 @@ resource "aws_iam_policy" "plan_frontend" {
         "logs:DescribeLogGroups", "logs:ListTagsForResource",
         "cloudwatch:DescribeAlarms", "cloudwatch:ListTagsForResource",
         "cognito-idp:DescribeUserPoolClient", "cognito-idp:DescribeManagedLoginBranding",
-        "iam:GetRole", "iam:GetRolePolicy", "iam:GetOpenIDConnectProvider", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies",
+        "iam:GetRole", "iam:GetRolePolicy", "iam:GetOpenIDConnectProvider", "iam:ListOpenIDConnectProviders", "iam:ListRolePolicies", "iam:ListAttachedRolePolicies",
       ]
       Resource = "*"
     }]
