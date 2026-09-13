@@ -158,6 +158,12 @@ resource "aws_apigatewayv2_api" "frontend" {
   description   = "Cognito-protected browser API for the CG Production Assistant"
 }
 
+resource "aws_apigatewayv2_stage" "frontend" {
+  api_id      = aws_apigatewayv2_api.frontend.id
+  name        = "$default"
+  auto_deploy = true
+}
+
 resource "aws_apigatewayv2_integration" "frontend" {
   api_id                 = aws_apigatewayv2_api.frontend.id
   integration_type       = "AWS_PROXY"
