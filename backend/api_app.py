@@ -14,8 +14,6 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from src.auth.cognito import authenticate_user, extract_user_from_token, signup_user
-from src.core.chat_agent import run_chat_agent
-from src.services.bedrock_client import invoke_bedrock
 from src.services.conversations import (
     add_message,
     create_conversation,
@@ -29,6 +27,29 @@ from src.services.streaming import dynamo_safe, final_answer_prompt, sse
 
 logger = logging.getLogger(__name__)
 app = FastAPI(title="CG Production Assistant API", docs_url=None, redoc_url=None)
+
+
+def run_chat_agent_request(
+    query: str,
+    conversation_history: list,
+    uploaded_image_base64: Optional[str],
+) -> Dict[str, Any]:
+    """Load the heavyweight agent stack only for an actual chat request."""
+    from src.core.chat_agent import run_chat_agent
+
+    return run_chat_agent(query, conversation_history, uploaded_image_base64, 2)
+
+
+def stream_final_answer_request(query: str, candidate: str):
+    """Defer Bedrock client initialization until a response is ready to stream."""
+    from src.services.bedrock_client import invoke_bedrock
+
+    return invoke_bedrock(
+        final_answer_prompt(query, candidate),
+        streaming=True,
+        temperature=0.2,
+        max_tokens=2048,
+    )
 
 
 class ChatRequest(BaseModel):
@@ -84,11 +105,10 @@ async def chat_events(
 
     task = asyncio.create_task(
         asyncio.to_thread(
-            run_chat_agent,
+            run_chat_agent_request,
             payload.query,
             history,
             payload.uploaded_image_base64,
-            2,
         )
     )
     try:
@@ -139,12 +159,7 @@ async def chat_events(
 
         yield sse("answer_start", {})
         candidate = result.get("final_answer") or "No answer was generated."
-        chunks = invoke_bedrock(
-            final_answer_prompt(payload.query, candidate),
-            streaming=True,
-            temperature=0.2,
-            max_tokens=2048,
-        )
+        chunks = stream_final_answer_request(payload.query, candidate)
         complete_answer = ""
         for chunk in chunks:
             if await request.is_disconnected():
