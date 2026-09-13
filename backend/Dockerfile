@@ -36,7 +36,7 @@ RUN pip install \
 # Stage 2: Copy to Lambda base image
 FROM public.ecr.aws/lambda/python:3.11
 
-# Pinned Lambda Web Adapter adds HTTP/1.1 response streaming for the Python ASGI app.
+# Pinned Lambda Web Adapter proxies the Python ASGI app to Lambda.
 COPY --from=public.ecr.aws/awsguru/aws-lambda-adapter:1.0.1 /lambda-adapter /opt/extensions/lambda-adapter
 
 # Copy the built dependencies from builder stage
@@ -55,7 +55,9 @@ ENV TRANSFORMERS_OFFLINE=1
 ENV HF_HUB_OFFLINE=1
 ENV HF_DATASETS_OFFLINE=1
 ENV PORT=8080
-ENV AWS_LWA_INVOKE_MODE=response_stream
+# API Gateway HTTP APIs require buffered Lambda proxy responses. The API layer
+# therefore returns completed responses rather than Function URL streaming.
+ENV AWS_LWA_INVOKE_MODE=buffered
 ENV AWS_LWA_READINESS_CHECK_PATH=/health
 
 # The adapter launches the ASGI server and maps Lambda Function URL requests to it.
