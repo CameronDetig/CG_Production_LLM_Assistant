@@ -377,8 +377,8 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   origin {
-    domain_name              = local.cloudfront_origin
-    origin_id                = "assistant-api"
+    domain_name = local.cloudfront_origin
+    origin_id   = "assistant-api"
     custom_origin_config {
       http_port              = 80
       https_port             = 443
