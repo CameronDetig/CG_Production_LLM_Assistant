@@ -29,11 +29,6 @@ logger.setLevel(logging.INFO)
 if not os.environ.get('SKIP_DB_INIT'):
     init_db_connection()
 
-# Preload embedding models to reduce cold start time
-from src.services.embeddings import preload_models
-preload_models()
-
-
 def make_json_serializable(obj: Any) -> Any:
     """
     Recursively convert objects to DynamoDB-compatible format.
@@ -118,6 +113,19 @@ def lambda_handler(event: Dict[str, Any], context: Any) -> Dict[str, Any]:
             http_method = event.get('httpMethod', 'POST')
             path = event.get('path', '/chat')
             logger.info(f"API Gateway request: {http_method} {path}")
+
+        # CloudFront exposes the API under /api while the legacy handler keeps
+        # its route table rooted at /. The current ASGI transport uses /api
+        # directly, so accepting both forms keeps the two transports compatible.
+        if path.startswith('/api/'):
+            path = path[4:]
+
+        if path == '/health' and http_method == 'GET':
+            return {
+                'statusCode': 200,
+                'headers': get_cors_headers(),
+                'body': json.dumps({'status': 'ok'})
+            }
         
         # Route to appropriate handler
         if path == '/chat' and http_method == 'POST':
