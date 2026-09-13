@@ -19,6 +19,7 @@ async function authenticatedFetch(
   const body = typeof init.body === "string" ? init.body : "";
   const headers = new Headers(init.headers);
   headers.set("X-Cognito-Token", session.idToken);
+  headers.set("Authorization", `Bearer ${session.idToken}`);
   headers.set("X-Amz-Content-Sha256", body ? await hexSha256(body) : EMPTY_SHA256);
   if (body) headers.set("Content-Type", "application/json");
   const response = await fetch(path, { ...init, headers });

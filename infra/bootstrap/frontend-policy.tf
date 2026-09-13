@@ -15,6 +15,7 @@ resource "aws_iam_policy" "plan_frontend" {
       Effect = "Allow"
       Action = [
         "cloudfront:Get*", "cloudfront:List*", "cloudfront:DescribeFunction",
+        "apigateway:GET",
         "wafv2:Get*", "wafv2:List*",
         "s3:GetBucket*", "s3:GetEncryptionConfiguration", "s3:GetLifecycleConfiguration", "s3:GetObject", "s3:ListBucket",
         "logs:DescribeLogGroups", "logs:ListTagsForResource",
@@ -66,6 +67,7 @@ resource "aws_iam_policy" "apply_frontend" {
           "cloudfront:CreateOriginAccessControl", "cloudfront:UpdateOriginAccessControl", "cloudfront:DeleteOriginAccessControl",
           "cloudfront:CreateResponseHeadersPolicy", "cloudfront:UpdateResponseHeadersPolicy", "cloudfront:DeleteResponseHeadersPolicy",
           "cloudfront:CreateFunction", "cloudfront:UpdateFunction", "cloudfront:DeleteFunction", "cloudfront:DescribeFunction", "cloudfront:PublishFunction",
+          "apigateway:GET", "apigateway:POST", "apigateway:PATCH", "apigateway:DELETE",
         ]
         Resource = "*"
       },
