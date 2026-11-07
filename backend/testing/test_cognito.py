@@ -1,5 +1,7 @@
 """Verify client compatibility and JWT rejection without contacting Cognito."""
 
+import base64
+import hashlib
 import time
 import unittest
 from unittest.mock import patch
@@ -51,6 +53,17 @@ class CognitoTokenTest(unittest.TestCase):
         for audience in ('web-client', 'legacy-client'):
             with self.subTest(audience=audience):
                 self.assertEqual(cognito.extract_user_from_token(self.token(aud=audience)), 'artist@example.test')
+
+    def test_accepts_oauth_id_token_with_access_token_hash(self):
+        # Cognito's code exchange includes at_hash even though API calls send
+        # only the ID token, not the access token from that exchange.
+        access_hash = base64.urlsafe_b64encode(
+            hashlib.sha256(b'test-access-token').digest()[:16]
+        ).rstrip(b'=').decode('ascii')
+        self.assertEqual(
+            cognito.extract_user_from_token(self.token(at_hash=access_hash)),
+            'artist@example.test',
+        )
 
     def test_rejects_unconfigured_or_missing_audience(self):
         for audience in ('other-client', None, ['web-client'], ''):

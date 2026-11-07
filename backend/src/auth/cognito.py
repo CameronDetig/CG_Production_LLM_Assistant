@@ -103,7 +103,11 @@ def validate_token(token: str) -> Optional[Dict[str, Any]]:
             public_key,
             algorithms=['RS256'],
             audience=audience,
-            issuer=COGNITO_ISSUER
+            issuer=COGNITO_ISSUER,
+            # This API validates a standalone ID token. at_hash binds an access
+            # token to the OAuth login response; API callers do not send that
+            # access token. Keep signature, issuer, audience and expiry checks.
+            options={'verify_at_hash': False},
         )
 
         if claims.get('token_use') != 'id':
