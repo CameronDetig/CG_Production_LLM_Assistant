@@ -86,6 +86,23 @@ def _get_bedrock_client(streaming: bool = False, temperature: float = 0.7, max_t
     return _bedrock_client
 
 
+def _content_to_text(content) -> str:
+    """Normalize LangChain message content (str or list of content blocks) to text."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, str):
+                parts.append(block)
+            elif isinstance(block, dict) and block.get("type", "text") == "text":
+                parts.append(block.get("text", ""))
+        return "".join(parts)
+    return str(content)
+
+
 def invoke_bedrock(
     prompt: str,
     streaming: bool = False,
@@ -122,7 +139,7 @@ def invoke_bedrock(
             def stream_generator():
                 try:
                     for chunk in llm.stream(prompt):
-                        text = chunk.content if hasattr(chunk, 'content') else str(chunk)
+                        text = _content_to_text(chunk.content if hasattr(chunk, 'content') else str(chunk))
                         if text:
                             yield text
                 except Exception as e:
@@ -134,7 +151,7 @@ def invoke_bedrock(
         else:
             # Return complete response for non-streaming
             response = llm.invoke(prompt)
-            text = response.content if hasattr(response, 'content') else str(response)
+            text = _content_to_text(response.content if hasattr(response, 'content') else str(response))
             logger.info(f"Bedrock response length: {len(text)} chars")
             return text
             
