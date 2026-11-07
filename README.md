@@ -5,6 +5,8 @@ AWS infrastructure and independent releases are managed in [infra/](infra/README
 AWS Lambda backend for AI chatbot with Bedrock (OpenAI GPT-OSS 20B) and PostgreSQL integration.
 Providing information on a database of CG production assets based on natural language queries.
 
+Website: https://d2wzq5ood2viu0.cloudfront.net/
+
 ## 📋 Table of Contents
 
 - [Architecture Overview](#architecture-overview)

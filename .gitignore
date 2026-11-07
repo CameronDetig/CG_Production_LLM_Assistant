@@ -13,3 +13,6 @@ __pycache__/
 *.tfvars.json
 !*.example.tfvars
 crash.log
+
+.codex/
+.claude/
