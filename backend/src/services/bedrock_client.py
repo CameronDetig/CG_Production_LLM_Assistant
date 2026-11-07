@@ -24,6 +24,10 @@ if not getattr(bedrock_converse_module, "_is_patched_for_reasoning", False):
                 logging.getLogger(__name__).info("Skipping reasoningContent block from model response")
                 continue
             filtered_content.append(block)
+        if content and not filtered_content:
+            # Streaming deltas are parsed with `_bedrock_to_lc([delta])[0]`; an empty
+            # list would raise IndexError, so substitute an empty text block.
+            filtered_content = [{"text": ""}]
         return _original_bedrock_to_lc(filtered_content)
 
     bedrock_converse_module._bedrock_to_lc = _bedrock_to_lc_patched
