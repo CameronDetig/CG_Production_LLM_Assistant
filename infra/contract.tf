@@ -15,7 +15,9 @@ locals {
     DB_HOST          = local.shared.database_host
     DB_PORT          = tostring(local.shared.database_port)
     THUMBNAIL_BUCKET = local.shared.thumbnail_bucket
-  } : {})
+    } : {}, {
+    COGNITO_WEB_CLIENT_ID = aws_cognito_user_pool_client.frontend.id
+  })
 }
 
 output "api_endpoint" {

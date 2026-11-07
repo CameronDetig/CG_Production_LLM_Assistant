@@ -19,6 +19,7 @@ logger = logging.getLogger()
 COGNITO_REGION = os.environ.get('COGNITO_REGION', 'us-east-1')
 COGNITO_USER_POOL_ID = os.environ.get('COGNITO_USER_POOL_ID')
 COGNITO_CLIENT_ID = os.environ.get('COGNITO_CLIENT_ID')
+COGNITO_WEB_CLIENT_ID = os.environ.get('COGNITO_WEB_CLIENT_ID')
 COGNITO_CLIENT_SECRET = os.environ.get('COGNITO_CLIENT_SECRET')
 
 # Cognito URLs
@@ -84,12 +85,24 @@ def validate_token(token: str) -> Optional[Dict[str, Any]]:
             logger.error(f"Public key not found for kid: {kid}")
             return None
         
+        # Select only a configured audience, then verify it along with the signature.
+        # The public web client differs from the confidential Gradio/Blender client.
+        audience = jwt.get_unverified_claims(token).get('aud')
+        allowed_audiences = {
+            client_id
+            for client_id in (COGNITO_CLIENT_ID, COGNITO_WEB_CLIENT_ID)
+            if client_id
+        }
+        if not isinstance(audience, str) or audience not in allowed_audiences:
+            logger.error("Rejected Cognito token with unconfigured audience")
+            return None
+
         # Verify and decode token
         claims = jwt.decode(
             token,
             public_key,
             algorithms=['RS256'],
-            audience=COGNITO_CLIENT_ID,
+            audience=audience,
             issuer=COGNITO_ISSUER
         )
 
