@@ -33,6 +33,15 @@ export async function listConversations(config: RuntimeConfig): Promise<Conversa
   return ((await response.json()) as { conversations: ConversationSummary[] }).conversations;
 }
 
+/** Ask the backend to pre-load its models and database pools. Best effort: never throws. */
+export async function warmUpBackend(config: RuntimeConfig): Promise<void> {
+  try {
+    await authenticatedFetch(config, "/api/warmup", { method: "POST" });
+  } catch {
+    // Warmup only improves first-question latency; failures must not affect the session.
+  }
+}
+
 export async function getConversation(config: RuntimeConfig, id: string): Promise<Message[]> {
   const response = await authenticatedFetch(config, `/api/conversations/${encodeURIComponent(id)}`);
   if (!response.ok) throw new Error("Unable to load conversation");

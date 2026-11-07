@@ -23,6 +23,7 @@ import {
   imageToBase64,
   listConversations,
   streamChat,
+  warmUpBackend,
 } from "./api";
 import type {
   ConversationSummary,
@@ -116,6 +117,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const warmedUpRef = useRef(false);
 
   const expireSession = useCallback(() => {
     sessionStorage.removeItem("cg-assistant.session");
@@ -149,6 +151,11 @@ export default function App() {
   }, []);
 
   useEffect(() => { if (config && session) void refreshConversations(config); }, [config, session, refreshConversations]);
+  useEffect(() => {
+    if (!config || !session || warmedUpRef.current) return;
+    warmedUpRef.current = true;
+    void warmUpBackend(config);
+  }, [config, session]);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, status]);
 
   const selectConversation = async (id: string) => {

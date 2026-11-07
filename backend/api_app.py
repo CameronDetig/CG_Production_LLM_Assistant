@@ -203,6 +203,14 @@ def health() -> Dict[str, str]:
     return {"status": "ok"}
 
 
+@app.post("/api/warmup")
+async def warmup(user_id: str = Depends(authenticated_user)) -> Dict[str, Any]:
+    """Pre-load models and database pools so the first chat request is not a cold one."""
+    from src.services.warmup import warm_up
+
+    return await asyncio.to_thread(warm_up)
+
+
 @app.post("/api/chat")
 async def chat(
     payload: ChatRequest,
