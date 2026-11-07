@@ -14,5 +14,11 @@ __pycache__/
 !*.example.tfvars
 crash.log
 
-.codex/
-.claude/
+# AI coding agents: share project config (rules, skills, commands), ignore personal state
+.claude/settings.local.json
+.claude/worktrees/
+.claude/projects/
+.codex/auth.json
+.codex/sessions/
+.cursor/mcp.json
+.agents/**/*.local.*
