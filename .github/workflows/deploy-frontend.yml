@@ -11,9 +11,10 @@ on:
 permissions:
   contents: read
 
+# Production deploys queue; PR verification gets its own cancellable group so it never waits on a deploy.
 concurrency:
-  group: frontend-production
-  cancel-in-progress: false
+  group: ${{ github.event_name == 'pull_request' && format('frontend-pr-{0}', github.ref) || 'frontend-production' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   AWS_REGION: us-east-1
@@ -22,6 +23,7 @@ env:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v4
@@ -41,33 +43,41 @@ jobs:
       - name: Build
         run: npm run build
         working-directory: frontend_web
+      - name: Save the tested build
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend_web/dist
+          if-no-files-found: error
+          retention-days: 7
 
   deploy:
-    if: github.event_name != 'pull_request'
+    # The OIDC trust policy also pins the main branch; this keeps the workflow honest on its own.
+    # Do not add a job `environment:` without updating the role trust, since it changes the OIDC sub claim.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: verify
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: read
       id-token: write
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-node@v4
+      # Ship exactly the build that passed tests and lint in `verify`.
+      - uses: actions/download-artifact@v4
         with:
-          node-version: 22
-          cache: npm
-          cache-dependency-path: frontend_web/package-lock.json
-      - run: npm ci
-        working-directory: frontend_web
-      - run: npm run build
-        working-directory: frontend_web
+          name: frontend-dist
+          path: frontend_web/dist
       - uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::001879457662:role/github-cg-assistant-frontend-deploy
           aws-region: us-east-1
       - name: Publish immutable assets
+        # No --delete: open tabs and edge-cached index.html may still reference the previous
+        # release's hashed chunks. Stale files are pruned in a later step after a grace period.
         run: >-
           aws s3 sync frontend_web/dist/assets "s3://$FRONTEND_BUCKET/assets"
-          --delete --cache-control "public,max-age=31536000,immutable"
+          --cache-control "public,max-age=31536000,immutable"
       - name: Publish entry point
         run: >-
           aws s3 sync frontend_web/dist "s3://$FRONTEND_BUCKET"
@@ -79,3 +89,19 @@ jobs:
           distribution_id=$(aws cloudfront list-distributions --query "DistributionList.Items[?Comment=='CG Production Assistant web and API'].Id | [0]" --output text)
           test -n "$distribution_id" && test "$distribution_id" != "None"
           aws cloudfront create-invalidation --distribution-id "$distribution_id" --paths "/" "/index.html"
+      - name: Prune stale assets after grace period
+        shell: bash
+        env:
+          GRACE_DAYS: '14'
+        run: |
+          set -euo pipefail
+          (cd frontend_web/dist && find assets -type f | sort) > current.txt
+          cutoff=$(date -u -d "-${GRACE_DAYS} days" +%Y-%m-%dT%H:%M:%S)
+          aws s3api list-objects-v2 --bucket "$FRONTEND_BUCKET" --prefix assets/ \
+            --query "Contents[?LastModified<'${cutoff}'].Key" --output text \
+            | tr '\t' '\n' | sed '/^None$/d;/^$/d' | sort > old.txt
+          comm -23 old.txt current.txt > stale.txt
+          echo "Pruning $(wc -l < stale.txt) stale asset(s)"
+          while read -r key; do
+            aws s3 rm "s3://$FRONTEND_BUCKET/$key"
+          done < stale.txt
