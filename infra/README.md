@@ -66,14 +66,13 @@ The approval workflow is always explicit, with an additional environment-review 
 
 For rollback, dispatch the plan workflow with a retained `sha256:...` image digest, then review/approve the resulting plan. For an infra/configuration rollback, make a reviewed source revert and plan again. Each backend build receives both an immutable `sha-<commit>` tag and a sequential `vN` tag. The current ECR lifecycle policy retains the latest three versioned images; add any future retention changes separately, accounting for deployed and rollback digests.
 
-The old direct deployment scripts are disabled to prevent competing ownership. Gradio's Hugging Face synchronization remains active during the validation window and uses the CloudFront `/api` origin.
+The old direct deployment scripts are disabled to prevent competing ownership.
 
 ## Web frontend release order
 
 1. Apply the reviewed `infra/bootstrap` update so CI can inspect and create the new resource types.
 2. Merge and approve the normal assistant Terraform release. This creates the private site/log buckets, CloudFront distribution, WAF, Cognito public client, runtime `config.json`, and frontend deployment role; it also enables Lambda response streaming and CloudFront-only invocation.
 3. Re-run **Deploy web frontend** after the Terraform apply completes. The first automatic run can fail because the deployment role does not exist until step 2. The workflow never overwrites Terraform-owned `config.json`.
-4. Set the Hugging Face Space `API_ENDPOINT` secret to the Terraform `frontend_url` output with `/api` appended, then validate both clients for seven days.
 
 The CloudFront hostname is the only initial public URL. Hashed assets receive immutable caching; HTML is deployed with revalidation and explicitly invalidated. S3 storage/requests, CloudFront, WAF rules/requests, log ingestion/storage, Lambda streaming duration, and Cognito active-user usage can all add cost.
 

@@ -86,7 +86,7 @@ def validate_token(token: str) -> Optional[Dict[str, Any]]:
             return None
         
         # Select only a configured audience, then verify it along with the signature.
-        # The public web client differs from the confidential Gradio/Blender client.
+        # The public web client differs from the confidential Blender client.
         audience = jwt.get_unverified_claims(token).get('aud')
         allowed_audiences = {
             client_id

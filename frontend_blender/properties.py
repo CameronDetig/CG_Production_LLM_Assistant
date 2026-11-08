@@ -74,7 +74,7 @@ class CG_AssistantPreferences(bpy.types.AddonPreferences):
     api_endpoint: StringProperty(
         name="API Endpoint",
         description="Backend API URL",
-        default="https://fhvltd2p33ejzyk5l5tgxyz4340qrghe.lambda-url.us-east-1.on.aws",
+        default="https://d2wzq5ood2viu0.cloudfront.net",
         subtype='NONE'
     )
     

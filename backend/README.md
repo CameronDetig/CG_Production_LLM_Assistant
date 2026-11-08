@@ -246,7 +246,7 @@ WHERE file_name ILIKE '%keyword%'
 ## Next Steps
 
 1. ✅ Deploy Lambda function (container)
-2. ⏳ Build Gradio frontend
+2. ✅ Build web frontend
 3. ⏳ Create Blender plugin
 4. ⏳ Test end-to-end workflow
 
