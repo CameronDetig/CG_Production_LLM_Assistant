@@ -25,6 +25,7 @@ env:
   ECR_URI: 001879457662.dkr.ecr.us-east-1.amazonaws.com/cg-chatbot
 jobs:
   build:
+    timeout-minutes: 60
     if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
@@ -105,6 +106,7 @@ jobs:
           echo "Published $version ($sha_tag) at $digest"
           echo "uri=$ECR_URI@$digest" >> "$GITHUB_OUTPUT"
   plan:
+    timeout-minutes: 30
     needs: build
     runs-on: ubuntu-latest
     permissions:

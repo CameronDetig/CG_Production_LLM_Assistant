@@ -93,6 +93,20 @@ def validate_manifest(manifest, run, config, now):
         raise ValueError('Plan has expired; create and approve a new plan')
 
 
+RELEASE_PATHS = ('backend/', 'infra/', '.github/workflows/deploy-backend.yml', '.github/workflows/approve-release.yml')
+
+
+def newer_release_changes(compare):
+    """Release-relevant files changed on main after the planned commit."""
+    return sorted(f['filename'] for f in compare.get('files', []) if f['filename'].startswith(RELEASE_PATHS))
+
+
+def validate_not_superseded(compare):
+    if compare.get('total_commits', 0) and (
+            newer_release_changes(compare) or len(compare.get('files', [])) >= 300):
+        raise ValueError('main has newer release changes since this plan; create and approve a fresh plan')
+
+
 def object_key(run_id, attempt, filename):
     if not str(run_id).isdigit() or not str(attempt).isdigit():
         raise ValueError('Run ID and attempt must be numeric')
@@ -161,6 +175,9 @@ def main():
         download(bucket, key, manifest_file)
         manifest = json.loads(manifest_file.read_text())
         validate_manifest(manifest, run, config, time.time())
+        compare = command(['gh', 'api', f"repos/{config['repository']}/compare/{manifest['commit']}...main"],
+                          json_output=True)
+        validate_not_superseded(compare)
         if args.action == 'verify':
             with open(os.environ['GITHUB_OUTPUT'], 'a', encoding='utf-8') as out:
                 out.write(f"commit={manifest['commit']}\n")

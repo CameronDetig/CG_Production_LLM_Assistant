@@ -1,7 +1,7 @@
 import unittest
 from unittest.mock import patch
 
-from release import CommandError, has_shared_contract, object_key, plan_changes, validate_run, validate_manifest
+from release import CommandError, has_shared_contract, newer_release_changes, object_key, plan_changes, validate_not_superseded, validate_run, validate_manifest
 
 
 class ReleaseSafetyTests(unittest.TestCase):
@@ -49,6 +49,20 @@ class ReleaseSafetyTests(unittest.TestCase):
                            ('conclusion', 'failure'), ('path', '.github/workflows/other.yml')]:
             with self.assertRaises(ValueError):
                 validate_run(dict(run, **{key: value}), config)
+
+    def test_superseded_plan_rejected(self):
+        compare = {'total_commits': 1, 'files': [{'filename': 'backend/src/core/chat_agent.py'}]}
+        self.assertEqual(newer_release_changes(compare), ['backend/src/core/chat_agent.py'])
+        with self.assertRaises(ValueError):
+            validate_not_superseded(compare)
+
+    def test_unrelated_or_no_newer_commits_allowed(self):
+        validate_not_superseded({'total_commits': 0, 'files': []})
+        validate_not_superseded({'total_commits': 2, 'files': [{'filename': 'frontend_web/src/App.css'}]})
+
+    def test_truncated_compare_is_treated_as_superseded(self):
+        with self.assertRaises(ValueError):
+            validate_not_superseded({'total_commits': 5, 'files': [{'filename': 'x'}] * 300})
 
     def test_run_key_rejects_path_injection(self):
         with self.assertRaises(ValueError):
