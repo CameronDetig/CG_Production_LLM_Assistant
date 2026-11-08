@@ -81,6 +81,10 @@ button:focus-visible, textarea:focus-visible, summary:focus-visible, a:focus-vis
 .message-avatar { width: 34px; height: 34px; border: 1px solid #303643; display: grid; place-items: center; font: 500 9px ui-monospace, "Cascadia Code", monospace; color: #9199a8; }
 .message.assistant .message-avatar { border-color: #3b4529; color: var(--accent); background: #161b13; }
 .message-body { min-width: 0; color: #d8dbe2; font-size: 14px; line-height: 1.75; }
+.message.user { grid-template-columns: 1fr 42px; }
+.message.user .message-avatar { order: 2; }
+.message.user .message-body { order: 1; text-align: right; }
+.message.user .message-body pre { text-align: left; }
 .message-label { color: #7c8494; font: 500 10px ui-monospace, "Cascadia Code", monospace; letter-spacing: .1em; text-transform: uppercase; margin: 6px 0 10px; }
 .message-body p { margin: 0 0 12px; }
 .message-body pre { overflow-x: auto; padding: 14px; background: #080a0d; border: 1px solid #222731; font: 400 12px/1.65 ui-monospace, "Cascadia Code", monospace; }
@@ -131,7 +135,8 @@ th { color: var(--accent); background: #151a13; }
   .workspace { height: 100dvh; }
   .topbar { padding: 0 15px; }.collection-label { display: none; }
   .chat-scroll { padding: 20px 16px; }.composer-wrap { padding: 9px 12px 12px; }
-  .message { grid-template-columns: 34px 1fr; gap: 10px; }.message-avatar { width: 30px; height: 30px; }
+  .message { grid-template-columns: 34px 1fr; gap: 10px; }
+  .message.user { grid-template-columns: 1fr 34px; }.message-avatar { width: 30px; height: 30px; }
   .login-card { padding: 34px 25px; }.brand-mark { margin-bottom: 36px; }
 }
 
