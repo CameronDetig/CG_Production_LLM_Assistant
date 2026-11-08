@@ -9,11 +9,11 @@ concurrency:
   cancel-in-progress: true
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       # The mocked regression tests need only these; the full ML stack is exercised by the image build.
@@ -28,11 +28,11 @@ jobs:
           python testing/test_cognito.py
           python testing/test_warmup.py
   image:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v5
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
       - name: Check free disk
         run: |
           available=$(df -Pk . | awk 'NR==2 {print $4}')
