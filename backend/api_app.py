@@ -249,7 +249,8 @@ async def remove_conversation(
     return {"message": "Conversation deleted"}
 
 
-# Temporary compatibility routes for the Gradio validation period.
+# Credential-based login for non-browser clients (the Blender add-on) that
+# cannot perform a browser OAuth redirect.
 @app.post("/api/auth")
 async def auth(payload: CredentialsRequest) -> Dict[str, Any]:
     tokens = await asyncio.to_thread(authenticate_user, payload.email, payload.password)

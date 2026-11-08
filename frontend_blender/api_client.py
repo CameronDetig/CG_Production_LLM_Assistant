@@ -130,7 +130,7 @@ class APIClient:
         """
         return self._make_request(
             'POST',
-            '/auth',
+            '/api/auth',
             data={'email': email, 'password': password}
         )
     
@@ -147,7 +147,7 @@ class APIClient:
         """
         return self._make_request(
             'POST',
-            '/signup',
+            '/api/signup',
             data={'email': email, 'password': password}
         )
     
@@ -158,7 +158,7 @@ class APIClient:
         Returns:
             APIResponse with conversations list
         """
-        return self._make_request('GET', '/conversations')
+        return self._make_request('GET', '/api/conversations')
     
     def get_conversation(self, conversation_id: str) -> APIResponse:
         """
@@ -170,7 +170,7 @@ class APIClient:
         Returns:
             APIResponse with conversation data
         """
-        return self._make_request('GET', f'/conversations/{conversation_id}')
+        return self._make_request('GET', f'/api/conversations/{conversation_id}')
     
     def delete_conversation(self, conversation_id: str) -> APIResponse:
         """
@@ -182,7 +182,7 @@ class APIClient:
         Returns:
             APIResponse with result
         """
-        return self._make_request('DELETE', f'/conversations/{conversation_id}')
+        return self._make_request('DELETE', f'/api/conversations/{conversation_id}')
     
     def chat_stream(
         self,
@@ -203,7 +203,7 @@ class APIClient:
         Returns:
             APIResponse with final result
         """
-        url = f"{self.base_url}/chat"
+        url = f"{self.base_url}/api/chat"
         
         # Build payload
         payload = {'query': query}

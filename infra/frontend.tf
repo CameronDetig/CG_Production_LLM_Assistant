@@ -190,6 +190,20 @@ resource "aws_apigatewayv2_route" "health" {
   target             = "integrations/${aws_apigatewayv2_integration.frontend.id}"
 }
 
+resource "aws_apigatewayv2_route" "auth" {
+  api_id             = aws_apigatewayv2_api.frontend.id
+  route_key          = "POST /api/auth"
+  authorization_type = "NONE"
+  target             = "integrations/${aws_apigatewayv2_integration.frontend.id}"
+}
+
+resource "aws_apigatewayv2_route" "signup" {
+  api_id             = aws_apigatewayv2_api.frontend.id
+  route_key          = "POST /api/signup"
+  authorization_type = "NONE"
+  target             = "integrations/${aws_apigatewayv2_integration.frontend.id}"
+}
+
 resource "aws_apigatewayv2_route" "authenticated" {
   api_id             = aws_apigatewayv2_api.frontend.id
   route_key          = "$default"

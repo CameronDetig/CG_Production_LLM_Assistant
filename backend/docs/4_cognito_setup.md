@@ -44,7 +44,7 @@ AWS Cognito will handle:
 
 6. **Integrate Your App**:
    - **User pool name**: `cg-production-assistant-user-pool`
-   - **Hosted authentication pages**: No (we'll use custom Gradio UI)
+   - **Hosted authentication pages**: No (we'll use a custom auth UI)
    - **Initial app client**:
      - **App client name**: `cg-production-assistant-client`
      - **Client secret**: Don't generate (public client)
@@ -236,11 +236,13 @@ print(f"User ID: {user_id}")  # Should be: demo@cgassistant.com
 
 ## Frontend Integration
 
-### Gradio Authentication Flow
+### Direct Credential Authentication Flow
+
+Non-browser clients (e.g. the Blender add-on) can't do a browser OAuth
+redirect, so they exchange credentials directly against Cognito:
 
 ```python
 import boto3
-import gradio as gr
 
 cognito_client = boto3.client('cognito-idp', region_name='us-east-1')
 CLIENT_ID = 'your-client-id'
@@ -263,19 +265,6 @@ def login(email, password):
 def demo_login():
     """Quick login with demo account."""
     return login('demo@cgassistant.com', 'DemoPass10!')
-
-# Gradio UI
-with gr.Blocks() as demo:
-    with gr.Row():
-        email = gr.Textbox(label="Email")
-        password = gr.Textbox(label="Password", type="password")
-        login_btn = gr.Button("Login")
-    
-    demo_btn = gr.Button("🎭 Demo Login")
-    token_output = gr.Textbox(label="Auth Token", visible=False)
-    
-    login_btn.click(login, inputs=[email, password], outputs=token_output)
-    demo_btn.click(demo_login, outputs=token_output)
 ```
 
 ---
@@ -393,4 +382,3 @@ After Cognito setup is complete:
 2. ✅ App client configured
 3. ➡️ Implement `auth.py` for JWT validation
 4. ➡️ Update Lambda to extract user_id from tokens
-5. ➡️ Add authentication UI to Gradio frontend

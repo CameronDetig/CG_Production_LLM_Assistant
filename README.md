@@ -23,9 +23,9 @@ Website: https://d2wzq5ood2viu0.cloudfront.net/
 ## 🏗️ Architecture Overview
 
 ```
-Gradio UI (Hugging Face) → API Gateway → Lambda → Bedrock LLMs
-                                          ↓
-                                    PostgreSQL (RDS)
+Web UI → API Gateway → Lambda → Bedrock LLMs
+                        ↓
+                  PostgreSQL (RDS)
 ```
 
 **Components:**
@@ -224,7 +224,7 @@ Lambda needs permissions to access Bedrock and RDS.
    - Click "Save"
    - Click "OK" on the permission popup
 
-5. **Enable CORS** (for Gradio):
+5. **Enable CORS**:
    - Select `/chat` resource
    - Click "Actions" → "Enable CORS"
    - Use default settings
@@ -241,7 +241,7 @@ Lambda needs permissions to access Bedrock and RDS.
    - You'll see "Invoke URL" at the top
    - Copy this URL (e.g., `https://abc123.execute-api.us-east-1.amazonaws.com/prod`)
    - Your endpoint will be: `{Invoke URL}/chat`
-   - **Save this URL!** You'll need it for Gradio
+   - **Save this URL!** You'll need it for the web frontend
 
 ---
 
