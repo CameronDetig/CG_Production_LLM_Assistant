@@ -1,7 +1,6 @@
 name: Backend checks
 on:
   pull_request:
-    paths: ['backend/**', '.github/workflows/backend-checks.yml']
 permissions:
   contents: read
 concurrency:

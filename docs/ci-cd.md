@@ -6,11 +6,11 @@ Workflows live in `.github/workflows/`. AWS access uses GitHub OIDC with separat
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `backend-checks.yml` | PRs touching `backend/**` | `test` job: mocked regression tests (`testing.test_streaming`, `testing/test_cognito.py`, `testing/test_warmup.py`). `image` job: no-push Docker build with a GHA cache and a 25 GB free-disk check. |
-| `infra-checks.yml` | PRs touching `infra/**` or workflows | `validate` job: Terraform `fmt`, `init`, `validate` for `infra/` and `infra/bootstrap/`, plus the `infra/tools` unit tests. |
+| `backend-checks.yml` | Every PR | `test` job: mocked regression tests (`testing.test_streaming`, `testing/test_cognito.py`, `testing/test_warmup.py`). `image` job: no-push Docker build with a GHA cache and a 25 GB free-disk check. |
+| `infra-checks.yml` | Every PR | `validate` job: Terraform `fmt`, `init`, `validate` for `infra/` and `infra/bootstrap/`, plus the `infra/tools` unit tests. |
 | `deploy-backend.yml` ("Plan assistant release") | Push to `main` touching `backend/**` or `infra/**`; manual dispatch | Builds the image to ECR (tags `sha-<commit>` and `v<N>`) and saves a private Terraform plan to S3. **Never applies anything.** |
 | `approve-release.yml` ("Approve production release") | Manual dispatch with a plan run ID; `production` environment | `release.py verify`, checks out the planned commit, then `apply` and `smoke`. |
-| `deploy-frontend.yml` | PRs touching `frontend_web/**` run `verify` only; pushes to `main` also deploy | Builds and tests in `verify`, uploads a `frontend-dist` artifact, then the `deploy` job (main only) syncs to S3, invalidates CloudFront and prunes old assets. There is currently no approval step. |
+| `deploy-frontend.yml` | Every PR runs `verify` only; pushes to `main` touching `frontend_web/**` also deploy | Builds and tests in `verify`, uploads a `frontend-dist` artifact, then the `deploy` job (main only) syncs to S3, invalidates CloudFront and prunes old assets. There is currently no approval step. |
 
 ## Two-stage backend release
 
@@ -44,11 +44,16 @@ The build, plan and apply roles are defined in `infra/bootstrap/`.
 - Every job has a `timeout-minutes`. Runners are pinned to `ubuntu-26.04`; bump the version deliberately when the image is retired.
 - Production deploys use concurrency groups so they queue rather than overlap. PR verification for the frontend uses a separate cancellable group.
 
+## Branch protection
+
+A repository ruleset on `main` blocks deletion and force-pushes and requires the status checks `test`, `image`, `validate` and `verify`. It does **not** require pull requests, and repository admins can bypass it, so the owner can still push directly. A direct push by anyone without bypass is rejected, since the checks cannot have run yet.
+
+The PR triggers of `backend-checks.yml`, `infra-checks.yml` and `deploy-frontend.yml` are deliberately unfiltered by path. A required check from a path-filtered workflow never reports on unrelated PRs and would block them. The `push` filters on the deploy workflows are kept, since they decide what gets deployed. Adding a new required check means its workflow must run on every PR.
+
 ## Known gaps
 
 - No application-level smoke test after a deploy.
 - The `production` GitHub environment has no required reviewers, so the "approval" is a deliberate manual dispatch.
-- `main` has no branch protection or ruleset.
 - ECR tags are mutable and scan-on-push is off.
 - Actions are pinned by tag rather than commit SHA, and there is no Dependabot for `github-actions`.
 

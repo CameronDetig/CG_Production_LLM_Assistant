@@ -1,7 +1,6 @@
 name: Infrastructure checks
 on:
   pull_request:
-    paths: ['infra/**', '.github/workflows/**']
 permissions:
   contents: read
 jobs:
