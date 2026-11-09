@@ -2,7 +2,6 @@ name: Deploy web frontend
 
 on:
   pull_request:
-    paths: ["frontend_web/**", ".github/workflows/deploy-frontend.yml"]
   push:
     branches: [main]
     paths: ["frontend_web/**", ".github/workflows/deploy-frontend.yml"]
