@@ -1,9 +1,14 @@
 import json
+import os
+import sys
 import unittest
 from datetime import datetime
 from decimal import Decimal
 
-from src.services.streaming import dynamo_safe, final_answer_prompt, json_safe, sse
+# The code under test lives in backend/; make `src` importable without needing PYTHONPATH.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'backend'))
+
+from src.services.streaming import dynamo_safe, final_answer_prompt, json_safe, sse  # noqa: E402
 
 
 class StreamingHelpersTest(unittest.TestCase):

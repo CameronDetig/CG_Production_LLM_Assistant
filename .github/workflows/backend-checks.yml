@@ -26,6 +26,8 @@ jobs:
           python tests/backend/test_warmup.py
       - name: Run Blender client tests (standard library only)
         run: python -m unittest discover -s tests/frontend_blender -p 'test_*.py'
+      - name: Run smoke script unit tests (no network)
+        run: python -m unittest discover -s tests/smoke -p 'test_*.py'
   image:
     runs-on: ubuntu-26.04
     timeout-minutes: 45

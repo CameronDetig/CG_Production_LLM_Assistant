@@ -156,7 +156,7 @@ def main():
             actual_image = data['Code']['ResolvedImageUri'] if '@sha256:' in expected_image else data['Code']['ImageUri']
             if actual_image != expected_image:
                 raise ValueError('Lambda image differs from the applied Terraform state')
-            print('Lambda configuration is active. Run the documented authenticated smoke test before accepting the release.')
+            print('Lambda configuration is active. The application smoke test runs next; an authenticated end-to-end check is still manual.')
         else:
             definition = command(['terraform', 'output', '-raw', 'job_definition_arn'])
             data = aws('batch', 'describe-job-definitions', '--job-definitions', definition)

@@ -52,6 +52,8 @@ jobs:
         run: python infra/tools/release.py apply --run-id "$PLAN_RUN_ID"
       - name: Verify deployment control plane
         run: python infra/tools/release.py smoke
+      - name: Smoke test the live site
+        run: python tests/smoke/smoke.py "$(terraform -chdir=infra output -raw frontend_url)"
   frontend:
     # Runs after the backend apply (skipped or succeeded), never after a failed one.
     needs: apply
@@ -68,6 +70,8 @@ jobs:
       FRONTEND_BUCKET: cg-assistant-web-001879457662-us-east-1
       BUILD_WORKFLOW: deploy-frontend.yml
     steps:
+      # Only for the smoke script; the site itself is deployed from the downloaded artifact.
+      - uses: actions/checkout@v5
       - name: Find the newest verified build
         id: build
         shell: bash
@@ -130,3 +134,10 @@ jobs:
           while read -r key; do
             aws s3 rm "s3://$FRONTEND_BUCKET/$key"
           done < stale.txt
+      - name: Smoke test the live site
+        shell: bash
+        run: |
+          set -euo pipefail
+          domain=$(aws cloudfront list-distributions --query "DistributionList.Items[?Comment=='CG Production Assistant web and API'].DomainName | [0]" --output text)
+          test -n "$domain" && test "$domain" != "None"
+          python3 tests/smoke/smoke.py "https://$domain"

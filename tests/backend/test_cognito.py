@@ -2,6 +2,8 @@
 
 import base64
 import hashlib
+import os
+import sys
 import time
 import unittest
 from unittest.mock import patch
@@ -10,7 +12,10 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives import serialization
 from jose import jwt
 
-from src.auth import cognito
+# The code under test lives in backend/; make `src` importable without needing PYTHONPATH.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'backend'))
+
+from src.auth import cognito  # noqa: E402
 
 
 class CognitoTokenTest(unittest.TestCase):

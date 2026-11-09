@@ -6,10 +6,10 @@ Workflows live in `.github/workflows/`. AWS access uses GitHub OIDC with separat
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `backend-checks.yml` | Every PR | `test` job: the mocked backend tests in `tests/backend/` plus the Blender client tests in `tests/frontend_blender/`. `image` job: no-push Docker build with a GHA cache and a 25 GB free-disk check. |
+| `backend-checks.yml` | Every PR | `test` job: the mocked backend tests in `tests/backend/`, the Blender client tests in `tests/frontend_blender/` and the smoke script's unit tests in `tests/smoke/`. `image` job: no-push Docker build with a GHA cache and a 25 GB free-disk check. |
 | `infra-checks.yml` | Every PR | `validate` job: Terraform `fmt`, `init`, `validate` for `infra/` and `infra/bootstrap/`, plus the release-tooling unit tests in `tests/infra/`. |
 | `deploy-backend.yml` ("Plan assistant release") | Push to `main` touching `backend/**` or `infra/**`; manual dispatch | Saves a private Terraform plan to S3. **Never applies anything.** It builds and pushes the image to ECR (tags `sha-<commit>` and `v<N>`) only on a push that changes `backend/`; on infra-only pushes and manual dispatches it plans against the image that is already deployed. |
-| `approve-release.yml` ("Approve production release") | Manual dispatch: optional plan run ID plus a "deploy frontend" checkbox (default on) | The single approval for everything. `apply` job (`production` environment, skipped if no plan ID): `release.py verify`, checks out the planned commit, then `apply` and `smoke`. Then the `frontend` job (if ticked): deploys the newest verified frontend build to S3, invalidates CloudFront and prunes old assets. |
+| `approve-release.yml` ("Approve production release") | Manual dispatch: optional plan run ID plus a "deploy frontend" checkbox (default on) | The single approval for everything. `apply` job (`production` environment, skipped if no plan ID): `release.py verify`, checks out the planned commit, then `apply` and `smoke`. Then the `frontend` job (if ticked): deploys the newest verified frontend build to S3, invalidates CloudFront, prunes old assets and runs the smoke test. |
 | `deploy-frontend.yml` | Every PR; pushes to `main` touching `frontend_web/**` | Runs `verify` (tests, lint, build). On `main` it also uploads the tested `frontend-dist` artifact (kept 30 days). **Never deploys.** |
 
 ## Two-stage backend release
@@ -20,7 +20,7 @@ Workflows live in `.github/workflows/`. AWS access uses GitHub OIDC with separat
    - verifies the plan's provenance: a successful run of the release-plan workflow on `main` in this repository, a manifest whose commit matches the run, a plan less than 24 hours old, and a matching file hash;
    - rejects the plan if `backend/`, `infra/` or the two release workflows changed on `main` since the planned commit, using the GitHub compare API. A truncated compare (300 or more files) is treated as superseded;
    - applies the exact saved plan.
-4. `release.py smoke` checks the Lambda is active and running the image Terraform expects. It does not exercise the application.
+4. `release.py smoke` checks the Lambda is active and running the image Terraform expects, then `tests/smoke/smoke.py` checks the live site (see `docs/testing.md`). A smoke failure fails the run but does not roll anything back.
 
 Keep this rollout two-stage. Do not collapse it into a single automatic apply.
 
@@ -67,7 +67,7 @@ Repository `cg-chatbot` (defined in `infra/resources.tf`):
 
 ## Known gaps
 
-- No application-level smoke test after a deploy.
+- No authenticated end-to-end smoke test; the post-deploy smoke test only covers anonymous behavior.
 - The `production` GitHub environment has no required reviewers, so both approvals (backend and frontend) are deliberate manual dispatches rather than a recorded reviewer sign-off.
 - Actions are pinned by tag rather than commit SHA, and there is no Dependabot for `github-actions`.
 
