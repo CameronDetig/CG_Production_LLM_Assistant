@@ -20,4 +20,4 @@ jobs:
           terraform -chdir=infra/bootstrap fmt -check
           terraform -chdir=infra/bootstrap init -backend=false -input=false -lockfile=readonly
           terraform -chdir=infra/bootstrap validate
-          python -m unittest discover -s infra/tools -p 'test_*.py'
+          python -m unittest discover -s tests/infra -p 'test_*.py'

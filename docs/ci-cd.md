@@ -6,8 +6,8 @@ Workflows live in `.github/workflows/`. AWS access uses GitHub OIDC with separat
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `backend-checks.yml` | Every PR | `test` job: mocked regression tests (`testing.test_streaming`, `testing/test_cognito.py`, `testing/test_warmup.py`). `image` job: no-push Docker build with a GHA cache and a 25 GB free-disk check. |
-| `infra-checks.yml` | Every PR | `validate` job: Terraform `fmt`, `init`, `validate` for `infra/` and `infra/bootstrap/`, plus the `infra/tools` unit tests. |
+| `backend-checks.yml` | Every PR | `test` job: the mocked backend tests in `tests/backend/` plus the Blender client tests in `tests/frontend_blender/`. `image` job: no-push Docker build with a GHA cache and a 25 GB free-disk check. |
+| `infra-checks.yml` | Every PR | `validate` job: Terraform `fmt`, `init`, `validate` for `infra/` and `infra/bootstrap/`, plus the release-tooling unit tests in `tests/infra/`. |
 | `deploy-backend.yml` ("Plan assistant release") | Push to `main` touching `backend/**` or `infra/**`; manual dispatch | Saves a private Terraform plan to S3. **Never applies anything.** It builds and pushes the image to ECR (tags `sha-<commit>` and `v<N>`) only on a push that changes `backend/`; on infra-only pushes and manual dispatches it plans against the image that is already deployed. |
 | `approve-release.yml` ("Approve production release") | Manual dispatch: optional plan run ID plus a "deploy frontend" checkbox (default on) | The single approval for everything. `apply` job (`production` environment, skipped if no plan ID): `release.py verify`, checks out the planned commit, then `apply` and `smoke`. Then the `frontend` job (if ticked): deploys the newest verified frontend build to S3, invalidates CloudFront and prunes old assets. |
 | `deploy-frontend.yml` | Every PR; pushes to `main` touching `frontend_web/**` | Runs `verify` (tests, lint, build). On `main` it also uploads the tested `frontend-dist` artifact (kept 30 days). **Never deploys.** |

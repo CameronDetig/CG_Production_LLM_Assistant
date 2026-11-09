@@ -8,11 +8,14 @@ import os
 import sys
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-load_dotenv()
+# This file lives in tests/backend/integration/; the code under test is in backend/.
+backend_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'backend')
 
-# Add backend directory to path (parent of testing/)
-sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+# Load environment variables from backend/.env
+load_dotenv(os.path.join(backend_dir, '.env'))
+
+# Add backend directory to path
+sys.path.insert(0, backend_dir)
 
 from lambda_function import lambda_handler
 

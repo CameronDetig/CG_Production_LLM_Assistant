@@ -1,12 +1,12 @@
 """Regression checks for src/services/warmup.py (no external services needed).
 
-Run from backend/:  python testing/test_warmup.py
+Run from the repo root:  PYTHONPATH=backend python tests/backend/test_warmup.py
 """
 
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'backend'))
 
 from src.services import warmup  # noqa: E402
 

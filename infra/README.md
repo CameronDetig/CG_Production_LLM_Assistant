@@ -92,8 +92,8 @@ terraform -chdir=infra init -backend=false -lockfile=readonly
 terraform -chdir=infra validate
 terraform -chdir=infra/bootstrap init -backend=false -lockfile=readonly
 terraform -chdir=infra/bootstrap validate
-python -m unittest discover -s infra/tools -p 'test_*.py'
-python -m unittest discover -s backend/testing -p 'test_streaming.py'
+python -m unittest discover -s tests/infra -p 'test_*.py'
+$env:PYTHONPATH = 'backend'; python -m unittest discover -s tests/backend -p 'test_*.py'
 npm --prefix frontend_web ci
 npm --prefix frontend_web test
 npm --prefix frontend_web run lint

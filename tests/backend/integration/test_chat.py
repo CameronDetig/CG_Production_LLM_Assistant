@@ -8,9 +8,9 @@ import os
 import sys
 from dotenv import load_dotenv
 
-# Load environment variables from .env file
-# Go up one level to find .env (from testing/ to backend/)
-backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Load environment variables from backend/.env
+# (this file lives in tests/backend/integration/)
+backend_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'backend')
 dotenv_path = os.path.join(backend_dir, '.env')
 load_dotenv(dotenv_path)
 
