@@ -1,5 +1,9 @@
+import os
+import sys
 import unittest
 from unittest.mock import patch
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'infra', 'tools'))
 
 from release import CommandError, has_shared_contract, newer_release_changes, object_key, plan_changes, validate_not_superseded, validate_run, validate_manifest
 

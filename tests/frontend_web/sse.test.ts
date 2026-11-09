@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SSEParser } from "./sse";
+import { SSEParser } from "../../frontend_web/src/sse";
 
 describe("SSEParser", () => {
   it("parses events split across arbitrary chunks and ignores heartbeats", () => {

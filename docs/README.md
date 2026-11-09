@@ -11,6 +11,7 @@ Cross-cutting documentation for the whole repository lives here. Component-speci
 
 ## Index
 
+- [testing.md](testing.md): where each component's tests live, how to run them, and which ones run in CI.
 - [ci-cd.md](ci-cd.md): GitHub Actions workflows, the two-stage backend release, AWS roles, and constraints to keep in mind when changing them.
 
 ## Conventions

@@ -15,7 +15,8 @@
     "isolatedModules": true,
     "noEmit": true,
     "jsx": "react-jsx",
-    "types": ["vitest/globals", "@testing-library/jest-dom"]
+    "types": ["vitest/globals", "@testing-library/jest-dom"],
+    "paths": { "vitest": ["./node_modules/vitest"], "vitest/*": ["./node_modules/vitest/*"], "@testing-library/*": ["./node_modules/@testing-library/*"] }
   },
-  "include": ["src"]
+  "include": ["src", "../tests/frontend_web"]
 }

@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`backend/lambda_function.py` handles API requests. Backend code is divided into `src/core/` for agent logic, `src/services/` for database/model/storage integrations, and `src/auth/` for Cognito authentication. `backend/testing/` holds diagnostics and a local Flask server; `backend/scripts/` and `backend/docs/` cover deployment. Cross-cutting documentation lives in the top-level `docs/` (start at `docs/README.md`); components may have their own `docs/` folder. `specs/` is a local, git-ignored folder of work specs and is not documentation.
+`backend/lambda_function.py` handles API requests. Backend code is divided into `src/core/` for agent logic, `src/services/` for database/model/storage integrations, and `src/auth/` for Cognito authentication. `backend/testing/` holds the local Flask server and its sample payload; all tests live under the top-level `tests/` folder, one subfolder per component (`backend/`, `frontend_web/`, `frontend_blender/`, `infra/`); `backend/scripts/` and `backend/docs/` cover deployment. Cross-cutting documentation lives in the top-level `docs/` (start at `docs/README.md`); components may have their own `docs/` folder. `specs/` is a local, git-ignored folder of work specs and is not documentation.
 
 `frontend_web/` implements the browser web UI. `frontend_blender/` contains the Blender add-on, including operators, panels, properties, and API client. `.github/workflows/` contains backend and web frontend deployment workflows.
 
@@ -13,7 +13,7 @@
 Use separate virtual environments as needed and run commands from the indicated directory:
 
 - `backend/`: `python -m pip install -r requirements.txt` installs component dependencies.
-- `backend/`: `python testing/test_local.py` exercises database and backend integrations using configured services.
+- Repo root: `PYTHONPATH=backend python -m unittest discover -s tests/backend -p 'test_*.py'` runs the mocked backend tests; `python tests/backend/integration/test_local.py` exercises database and backend integrations using configured services. See `docs/testing.md` for every suite.
 - `backend/`: install Flask with `python -m pip install flask`, then run `python testing/lambda_server.py` to serve the local API on port 5000.
 - `backend/`: `docker buildx build --platform linux/amd64 --provenance=false --sbom=false --load -t cg-chatbot .` builds the backend container.
 
@@ -25,7 +25,7 @@ Use four spaces, `snake_case` functions/modules, `PascalCase` classes, and upper
 
 ## Testing Guidelines
 
-Backend checks are standalone integration scripts; no enforced coverage threshold exists. Add focused `test_*.py` regressions under `backend/testing/`, mocking external services for isolated checks. Validate authentication, streamed responses, search results, and conversation behavior when affected. Manually verify UI changes in the web frontend or Blender and include screenshots. Report unavailable service/model prerequisites and skipped checks.
+No enforced coverage threshold exists. Put tests in the top-level `tests/` folder under the component they cover, not next to the source. Add focused `test_*.py` regressions under `tests/backend/`, mocking external services for isolated checks; scripts that need live services go in `tests/backend/integration/`. Frontend tests go in `tests/frontend_web/` (vitest), Blender client tests in `tests/frontend_blender/`, and release-tooling tests in `tests/infra/`. Validate authentication, streamed responses, search results, and conversation behavior when affected. Manually verify UI changes in the web frontend or Blender and include screenshots. Report unavailable service/model prerequisites and skipped checks.
 
 ## Documentation
 

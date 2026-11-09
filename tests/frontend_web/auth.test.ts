@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { createAuthorizationRequest, readSession, saveSession } from "./auth";
-import type { RuntimeConfig, Session } from "./types";
+import { createAuthorizationRequest, readSession, saveSession } from "../../frontend_web/src/auth";
+import type { RuntimeConfig, Session } from "../../frontend_web/src/types";
 
 const config: RuntimeConfig = {
   cognitoDomain: "example.auth.us-east-1.amazoncognito.com",
