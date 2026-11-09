@@ -20,7 +20,7 @@ Workflows live in `.github/workflows/`. AWS access uses GitHub OIDC with separat
    - verifies the plan's provenance: a successful run of the release-plan workflow on `main` in this repository, a manifest whose commit matches the run, a plan less than 24 hours old, and a matching file hash;
    - rejects the plan if `backend/`, `infra/` or the two release workflows changed on `main` since the planned commit, using the GitHub compare API. A truncated compare (300 or more files) is treated as superseded;
    - applies the exact saved plan.
-4. `release.py smoke` checks the Lambda is active and running the image Terraform expects, then `tests/smoke/smoke.py` checks the live site (see `docs/testing.md`). A smoke failure fails the run but does not roll anything back.
+4. `release.py smoke` checks the Lambda is active and running the image Terraform expects, then, for a backend-only release, `tests/smoke/smoke.py` checks the live site (when the frontend deploys too, the same check runs once at the end of the `frontend` job; see `docs/testing.md`). A smoke failure fails the run but does not roll anything back.
 
 Keep this rollout two-stage. Do not collapse it into a single automatic apply.
 

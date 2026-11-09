@@ -52,7 +52,9 @@ jobs:
         run: python infra/tools/release.py apply --run-id "$PLAN_RUN_ID"
       - name: Verify deployment control plane
         run: python infra/tools/release.py smoke
+      # Backend-only releases smoke test here. When the frontend deploys too, its job smoke tests once at the end.
       - name: Smoke test the live site
+        if: ${{ !inputs.deploy_frontend }}
         run: python tests/smoke/smoke.py "$(terraform -chdir=infra output -raw frontend_url)"
   frontend:
     # Runs after the backend apply (skipped or succeeded), never after a failed one.

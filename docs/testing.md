@@ -50,10 +50,12 @@ npm run build   # also type-checks the tests
 
 ## Smoke tests
 
-`tests/smoke/smoke.py` checks the **live** site over HTTPS with the standard library only, so it needs no credentials. It runs automatically:
+`tests/smoke/smoke.py` checks the **live** site over HTTPS with the standard library only, so it needs no credentials. It runs once per release, at the end of the last job that ran in `approve-release.yml`:
 
-- in `approve-release.yml`, after the backend apply (`apply` job), using `terraform output frontend_url`;
-- in `approve-release.yml`, after the frontend deploy (`frontend` job), using the CloudFront domain found by name.
+- when the frontend is deployed (with or without a backend apply), in the `frontend` job, using the CloudFront domain found by name;
+- for a backend-only release ("deploy frontend" unticked), in the `apply` job, using `terraform output frontend_url`.
+
+The checks go through the whole stack, so one run after the final change covers both halves. If the `frontend` job fails before deploying (for example, the newest build has not succeeded), no smoke test runs, but the run is red anyway.
 
 Checks (each retried up to 6 times, 10 seconds apart, because CloudFront invalidation and Lambda cold starts take a moment):
 
