@@ -50,11 +50,17 @@ A repository ruleset on `main` blocks deletion and force-pushes and requires the
 
 The PR triggers of `backend-checks.yml`, `infra-checks.yml` and `deploy-frontend.yml` are deliberately unfiltered by path. A required check from a path-filtered workflow never reports on unrelated PRs and would block them. The `push` filters on the deploy workflows are kept, since they decide what gets deployed. Adding a new required check means its workflow must run on every PR.
 
+## ECR
+
+Repository `cg-chatbot` (defined in `infra/resources.tf`):
+- Each image gets two tags: `sha-<commit>` and `v<N>`. Tags are **immutable**; pushing an existing tag fails. `deploy-backend.yml` reuses an existing `sha-` tag instead of rebuilding and only adds the new `v<N>` tag, and releases pin the image by digest.
+- Basic scan-on-push is on (free). Findings are informational and do not block a release. Enhanced scanning (Amazon Inspector) is not enabled; it is billed per image.
+- The lifecycle policy keeps the last 3 `v`-prefixed images.
+
 ## Known gaps
 
 - No application-level smoke test after a deploy.
 - The `production` GitHub environment has no required reviewers, so the "approval" is a deliberate manual dispatch.
-- ECR tags are mutable and scan-on-push is off.
 - Actions are pinned by tag rather than commit SHA, and there is no Dependabot for `github-actions`.
 
 These are tracked as local specs and will be removed from this list as they are fixed.

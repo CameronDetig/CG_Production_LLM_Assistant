@@ -219,7 +219,7 @@ resource "aws_ecr_repository" "application" {
   lifecycle {
     prevent_destroy = true
   }
-  image_tag_mutability = "MUTABLE"
+  image_tag_mutability = "IMMUTABLE"
   name                 = "cg-chatbot"
   region               = "us-east-1"
   tags                 = {}
@@ -227,7 +227,7 @@ resource "aws_ecr_repository" "application" {
     encryption_type = "AES256"
   }
   image_scanning_configuration {
-    scan_on_push = false
+    scan_on_push = true
   }
 }
 
