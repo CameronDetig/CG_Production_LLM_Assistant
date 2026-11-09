@@ -33,7 +33,7 @@ After implementing a significant change (new or changed workflow, infrastructure
 
 ## Commit & Pull Request Guidelines
 
-History uses descriptive subjects without mandatory prefixes. Explain behavior changes, affected clients, configuration changes, and validation in PRs. Commit here and publish the commit before updating the parent submodule reference. Changes to `frontend_web/**` pushed to `main` trigger the web frontend deployment workflow; backend changes create a Terraform release plan, and a separate manual approval workflow applies it.
+History uses descriptive subjects without mandatory prefixes. Explain behavior changes, affected clients, configuration changes, and validation in PRs. Commit here and publish the commit before updating the parent submodule reference. Changes to `frontend_web/**` pushed to `main` build and verify the web frontend, and a separate manual approval workflow deploys that build; backend changes create a Terraform release plan, and a separate manual approval workflow applies it.
 
 ## Security & Compatibility
 

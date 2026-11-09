@@ -3,9 +3,15 @@ on:
   workflow_dispatch:
     inputs:
       plan_run_id:
-        description: 'Successful release-plan run ID reviewed in GitHub and private S3 plan'
-        required: true
+        description: 'Successful release-plan run ID reviewed in GitHub and private S3 plan. Leave blank to skip the backend.'
+        required: false
+        default: ''
         type: string
+      deploy_frontend:
+        description: 'Also deploy the newest verified frontend build from main (runs after the backend apply)'
+        required: false
+        default: true
+        type: boolean
 permissions:
   contents: read
   actions: read
@@ -15,7 +21,7 @@ concurrency:
 jobs:
   apply:
     timeout-minutes: 30
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && inputs.plan_run_id != ''
     environment: production
     runs-on: ubuntu-26.04
     permissions:
@@ -46,3 +52,81 @@ jobs:
         run: python infra/tools/release.py apply --run-id "$PLAN_RUN_ID"
       - name: Verify deployment control plane
         run: python infra/tools/release.py smoke
+  frontend:
+    # Runs after the backend apply (skipped or succeeded), never after a failed one.
+    needs: apply
+    if: ${{ !cancelled() && github.ref == 'refs/heads/main' && inputs.deploy_frontend && (needs.apply.result == 'success' || needs.apply.result == 'skipped') }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      AWS_REGION: us-east-1
+      FRONTEND_BUCKET: cg-assistant-web-001879457662-us-east-1
+      BUILD_WORKFLOW: deploy-frontend.yml
+    steps:
+      - name: Find the newest verified build
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          # The newest frontend build on main is the only one that may ship. If it is still running, failed
+          # or cancelled, stop rather than fall back to an older build.
+          run=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/$BUILD_WORKFLOW/runs?branch=main&event=push&per_page=1" --jq '.workflow_runs[0]')
+          echo "$run" | jq -e --arg repo "$GITHUB_REPOSITORY" '
+            .conclusion == "success" and .head_branch == "main" and .event == "push"
+            and .repository.full_name == $repo' > /dev/null \
+            || { echo 'The newest frontend build on main has not succeeded. Wait for it or fix it, then run again.' >&2; exit 1; }
+          run_id=$(echo "$run" | jq -r .id)
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$run_id/artifacts" \
+            --jq '.artifacts[] | select(.name == "frontend-dist" and (.expired | not)) | .id' | grep -q . \
+            || { echo 'The frontend-dist artifact is missing or expired. Push a new frontend build.' >&2; exit 1; }
+          echo "run_id=$run_id" >> "$GITHUB_OUTPUT"
+          echo "Deploying build from commit $(echo "$run" | jq -r .head_sha) (run $run_id)"
+      # Ship exactly the build that passed tests and lint when it was merged.
+      - uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: frontend_web/dist
+          run-id: ${{ steps.build.outputs.run_id }}
+          github-token: ${{ github.token }}
+      - uses: aws-actions/configure-aws-credentials@v6
+        with:
+          role-to-assume: arn:aws:iam::001879457662:role/github-cg-assistant-frontend-deploy
+          aws-region: us-east-1
+      - name: Publish immutable assets
+        # No --delete: open tabs and edge-cached index.html may still reference the previous
+        # release's hashed chunks. Stale files are pruned in a later step after a grace period.
+        run: >-
+          aws s3 sync frontend_web/dist/assets "s3://$FRONTEND_BUCKET/assets"
+          --cache-control "public,max-age=31536000,immutable"
+      - name: Publish entry point
+        run: >-
+          aws s3 sync frontend_web/dist "s3://$FRONTEND_BUCKET"
+          --delete --exclude "assets/*" --exclude "config.json"
+          --cache-control "no-cache"
+      - name: Invalidate entry point
+        shell: bash
+        run: |
+          distribution_id=$(aws cloudfront list-distributions --query "DistributionList.Items[?Comment=='CG Production Assistant web and API'].Id | [0]" --output text)
+          test -n "$distribution_id" && test "$distribution_id" != "None"
+          aws cloudfront create-invalidation --distribution-id "$distribution_id" --paths "/" "/index.html"
+      - name: Prune stale assets after grace period
+        shell: bash
+        env:
+          GRACE_DAYS: '14'
+        run: |
+          set -euo pipefail
+          (cd frontend_web/dist && find assets -type f | sort) > current.txt
+          cutoff=$(date -u -d "-${GRACE_DAYS} days" +%Y-%m-%dT%H:%M:%S)
+          aws s3api list-objects-v2 --bucket "$FRONTEND_BUCKET" --prefix assets/ \
+            --query "Contents[?LastModified<'${cutoff}'].Key" --output text \
+            | tr '\t' '\n' | sed '/^None$/d;/^$/d' | sort > old.txt
+          comm -23 old.txt current.txt > stale.txt
+          echo "Pruning $(wc -l < stale.txt) stale asset(s)"
+          while read -r key; do
+            aws s3 rm "s3://$FRONTEND_BUCKET/$key"
+          done < stale.txt

@@ -72,7 +72,7 @@ The old direct deployment scripts are disabled to prevent competing ownership.
 
 1. Apply the reviewed `infra/bootstrap` update so CI can inspect and create the new resource types.
 2. Merge and approve the normal assistant Terraform release. This creates the private site/log buckets, CloudFront distribution, WAF, Cognito public client, runtime `config.json`, and frontend deployment role; it also enables Lambda response streaming and CloudFront-only invocation.
-3. Re-run **Deploy web frontend** after the Terraform apply completes. The first automatic run can fail because the deployment role does not exist until step 2. The workflow never overwrites Terraform-owned `config.json`.
+3. After the Terraform apply completes, dispatch **Approve production release** with the plan run ID blank and **deploy frontend** ticked (see `docs/ci-cd.md`). Deployment is manual, and it fails if the deployment role does not exist yet, which is why step 2 comes first. The workflow never overwrites Terraform-owned `config.json`.
 
 The CloudFront hostname is the only initial public URL. Hashed assets receive immutable caching; HTML is deployed with revalidation and explicitly invalidated. S3 storage/requests, CloudFront, WAF rules/requests, log ingestion/storage, Lambda streaming duration, and Cognito active-user usage can all add cost.
 
