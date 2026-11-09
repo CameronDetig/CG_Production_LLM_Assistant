@@ -27,6 +27,10 @@ Use four spaces, `snake_case` functions/modules, `PascalCase` classes, and upper
 
 Backend checks are standalone integration scripts; no enforced coverage threshold exists. Add focused `test_*.py` regressions under `backend/testing/`, mocking external services for isolated checks. Validate authentication, streamed responses, search results, and conversation behavior when affected. Manually verify UI changes in the web frontend or Blender and include screenshots. Report unavailable service/model prerequisites and skipped checks.
 
+## Documentation
+
+After implementing a significant change (new or changed workflow, infrastructure, deployment or release behavior, API or data contract, configuration, or test layout), update or add the relevant docs in the same commit. Cross-cutting topics go in the top-level `docs/` (add new files to the index in `docs/README.md`); component-specific topics go in that component's `docs/` folder. Remove or correct statements the change makes untrue, such as the "Known gaps" list in `docs/ci-cd.md`. Small fixes that do not change behavior do not need doc updates.
+
 ## Commit & Pull Request Guidelines
 
 History uses descriptive subjects without mandatory prefixes. Explain behavior changes, affected clients, configuration changes, and validation in PRs. Commit here and publish the commit before updating the parent submodule reference. Changes to `frontend_web/**` pushed to `main` trigger the web frontend deployment workflow; backend changes create a Terraform release plan, and a separate manual approval workflow applies it.
