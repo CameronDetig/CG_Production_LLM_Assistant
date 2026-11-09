@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`backend/lambda_function.py` handles API requests. Backend code is divided into `src/core/` for agent logic, `src/services/` for database/model/storage integrations, and `src/auth/` for Cognito authentication. `backend/testing/` holds diagnostics and a local Flask server; `backend/scripts/` and `backend/docs/` cover deployment.
+`backend/lambda_function.py` handles API requests. Backend code is divided into `src/core/` for agent logic, `src/services/` for database/model/storage integrations, and `src/auth/` for Cognito authentication. `backend/testing/` holds diagnostics and a local Flask server; `backend/scripts/` and `backend/docs/` cover deployment. Cross-cutting documentation lives in the top-level `docs/` (start at `docs/README.md`); components may have their own `docs/` folder. `specs/` is a local, git-ignored folder of work specs and is not documentation.
 
 `frontend_web/` implements the browser web UI. `frontend_blender/` contains the Blender add-on, including operators, panels, properties, and API client. `.github/workflows/` contains backend and web frontend deployment workflows.
 
@@ -26,6 +26,10 @@ Use four spaces, `snake_case` functions/modules, `PascalCase` classes, and upper
 ## Testing Guidelines
 
 Backend checks are standalone integration scripts; no enforced coverage threshold exists. Add focused `test_*.py` regressions under `backend/testing/`, mocking external services for isolated checks. Validate authentication, streamed responses, search results, and conversation behavior when affected. Manually verify UI changes in the web frontend or Blender and include screenshots. Report unavailable service/model prerequisites and skipped checks.
+
+## Documentation
+
+After implementing a significant change (new or changed workflow, infrastructure, deployment or release behavior, API or data contract, configuration, or test layout), update or add the relevant docs in the same commit. Cross-cutting topics go in the top-level `docs/` (add new files to the index in `docs/README.md`); component-specific topics go in that component's `docs/` folder. Remove or correct statements the change makes untrue, such as the "Known gaps" list in `docs/ci-cd.md`. Small fixes that do not change behavior do not need doc updates.
 
 ## Commit & Pull Request Guidelines
 
