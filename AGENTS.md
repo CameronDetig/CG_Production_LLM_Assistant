@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`backend/lambda_function.py` handles API requests. Backend code is divided into `src/core/` for agent logic, `src/services/` for database/model/storage integrations, and `src/auth/` for Cognito authentication. `backend/testing/` holds diagnostics and a local Flask server; `backend/scripts/` and `backend/docs/` cover deployment.
+`backend/lambda_function.py` handles API requests. Backend code is divided into `src/core/` for agent logic, `src/services/` for database/model/storage integrations, and `src/auth/` for Cognito authentication. `backend/testing/` holds diagnostics and a local Flask server; `backend/scripts/` and `backend/docs/` cover deployment. Cross-cutting documentation lives in the top-level `docs/` (start at `docs/README.md`); components may have their own `docs/` folder. `specs/` is a local, git-ignored folder of work specs and is not documentation.
 
 `frontend_web/` implements the browser web UI. `frontend_blender/` contains the Blender add-on, including operators, panels, properties, and API client. `.github/workflows/` contains backend and web frontend deployment workflows.
 

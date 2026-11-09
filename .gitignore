@@ -22,3 +22,6 @@ crash.log
 .codex/sessions/
 .cursor/mcp.json
 .agents/**/*.local.*
+
+# Folder for specification files for agent planning.
+specs/
