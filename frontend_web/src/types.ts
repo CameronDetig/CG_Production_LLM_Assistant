@@ -20,10 +20,27 @@ export interface ConversationSummary {
   message_count: number;
 }
 
+/** Restricts a search. An empty list means that dimension is not limited. */
+export interface SearchFilters {
+  shows: string[];
+  file_types: string[];
+}
+
+export interface FilterOption {
+  name: string;
+  file_count: number;
+}
+
+export interface FilterOptions {
+  shows: FilterOption[];
+  file_types: FilterOption[];
+}
+
 export interface ToolCall {
   sql_query?: string;
   result_count?: number;
   results?: Record<string, unknown>[];
+  filters?: SearchFilters;
 }
 
 export interface Message {
@@ -34,6 +51,7 @@ export interface Message {
   imageUrl?: string;
   details?: DetailBlock[];
   thumbnails?: Thumbnail[];
+  filters?: SearchFilters;
   pending?: boolean;
   error?: boolean;
 }

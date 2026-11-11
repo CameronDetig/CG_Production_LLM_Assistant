@@ -20,17 +20,22 @@ import { beginLogin, completeLogin, loadConfig, logout, readSession } from "./au
 import {
   deleteConversation,
   getConversation,
+  getFilterOptions,
   imageToBase64,
   listConversations,
   streamChat,
   warmUpBackend,
 } from "./api";
+import { FilterChips, FilterMenu } from "./Filters";
+import { countFilters, describeFilters, loadStoredFilters, pruneFilters, storeFilters } from "./searchFilters";
 import type {
   ConversationSummary,
   DetailBlock,
+  FilterOptions,
   Message,
   RuntimeConfig,
   SSEMessage,
+  SearchFilters,
   Session,
   Thumbnail,
 } from "./types";
@@ -78,6 +83,8 @@ function ResultTable({ rows }: { rows: Record<string, unknown>[] }) {
 }
 
 function MessageCard({ message }: { message: Message }) {
+  // Live messages get their scope from the `filters` event; reloaded ones from the stored tool call.
+  const scope = describeFilters(message.filters ?? message.tool_calls?.[0]?.filters);
   return (
     <article className={`message ${message.role} ${message.error ? "message-error" : ""}`}>
       <div className="message-avatar">{message.role === "user" ? "YOU" : <Sparkles size={17} />}</div>
@@ -87,6 +94,7 @@ function MessageCard({ message }: { message: Message }) {
         {message.pending && !message.content ? <div className="thinking"><i /><i /><i /></div> : (
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
         )}
+        {scope && <p className="filter-scope">Searched only in: {scope}</p>}
         {message.details?.map((detail, index) => <Detail key={`${detail.type}-${index}`} block={detail} />)}
         {!!message.thumbnails?.length && (
           <div className="thumbnail-grid">
@@ -111,6 +119,8 @@ export default function App() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [text, setText] = useState("");
   const [image, setImage] = useState<{ data: string; preview: string; name: string } | null>(null);
+  const [filterOptions, setFilterOptions] = useState<FilterOptions | null>(null);
+  const [filters, setFilters] = useState<SearchFilters>(loadStoredFilters);
   const [status, setStatus] = useState("Ready");
   const [busy, setBusy] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -156,6 +166,20 @@ export default function App() {
     warmedUpRef.current = true;
     void warmUpBackend(config);
   }, [config, session]);
+  useEffect(() => {
+    if (!config || !session) return;
+    void (async () => {
+      try {
+        const options = await getFilterOptions(config);
+        setFilterOptions(options);
+        setFilters((current) => pruneFilters(current, options));
+      } catch (reason) {
+        if (reason instanceof Error && reason.message === "SESSION_EXPIRED") expireSession();
+        // Otherwise the filter menu reports itself unavailable; chat still works unfiltered.
+      }
+    })();
+  }, [config, session, expireSession]);
+  useEffect(() => { storeFilters(filters); }, [filters]);
   useEffect(() => { endRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, status]);
 
   const selectConversation = async (id: string) => {
@@ -199,6 +223,10 @@ export default function App() {
   const handleEvent = (event: SSEMessage) => {
     if (event.event === "agent_start") {
       if (typeof event.data.conversation_id === "string") setConversationId(event.data.conversation_id);
+      return;
+    }
+    if (event.event === "filters") {
+      updateAssistant((message) => ({ ...message, filters: event.data as unknown as SearchFilters }));
       return;
     }
     if (event.event === "status") {
@@ -253,6 +281,7 @@ export default function App() {
         query,
         ...(conversationId ? { conversation_id: conversationId } : {}),
         ...(submittedImage ? { uploaded_image_base64: submittedImage.data } : {}),
+        ...(countFilters(filters) ? { filters } : {}),
       }, handleEvent, controller.signal);
       await refreshConversations();
     } catch (reason) {
@@ -344,10 +373,12 @@ export default function App() {
         <footer className="composer-wrap">
           {error && <div className="toast"><CircleAlert size={16} /><span>{error}</span><button onClick={() => setError(null)} aria-label="Dismiss"><X size={15} /></button></div>}
           {image && <div className="image-chip"><img src={image.preview} alt="Selected upload" /><span>{image.name}</span><button onClick={() => setImage(null)} aria-label="Remove image"><X size={15} /></button></div>}
+          <FilterChips value={filters} onChange={setFilters} />
           <div className="composer">
             <label className="upload-button" title="Add a reference image">
               <ImagePlus size={20} /><input type="file" accept="image/*" onChange={(event) => void chooseImage(event.target.files?.[0])} />
             </label>
+            <FilterMenu options={filterOptions} value={filters} onChange={setFilters} disabled={busy} />
             <textarea value={text} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); }
             }} placeholder="Ask about production assets…" rows={1} disabled={busy} aria-label="Message" />

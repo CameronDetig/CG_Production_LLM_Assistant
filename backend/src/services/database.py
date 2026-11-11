@@ -13,6 +13,7 @@ import sqlglot
 from sqlglot import exp
 
 from src.services.s3_thumbnail_utils import get_thumbnail_url, get_file_download_url
+from src.services.search_filters import apply_search_filters
 
 logger = logging.getLogger()
 
@@ -23,6 +24,12 @@ connection_pool: Optional[pool.SimpleConnectionPool] = None
 # Must point at a DB role that only has SELECT granted.
 # See backend/docs for how DB_READONLY_USER/DB_READONLY_PASSWORD are provisioned.
 readonly_connection_pool: Optional[pool.SimpleConnectionPool] = None
+
+# Shows and file types offered as search filters change only when the metadata extractor
+# runs, so the grouped count is cached per container instead of queried per page load.
+FILTER_OPTIONS_TTL_SECONDS = 600
+_filter_options_cache: Optional[Dict[str, Any]] = None
+_filter_options_loaded_at = 0.0
 
 # AST node types that must never appear in LLM-generated SQL, even nested
 # inside a CTE (e.g. `WITH x AS (DELETE FROM files RETURNING *) SELECT * FROM x`).
@@ -174,9 +181,53 @@ def _add_thumbnail_urls(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return results
 
 
+def get_filter_options() -> Dict[str, List[Dict[str, Any]]]:
+    """
+    List the shows and file types a search can be restricted to, with file counts.
+
+    Returns:
+        {"shows": [{"name", "file_count"}], "file_types": [{"name", "file_count"}]},
+        each sorted by name. Cached for FILTER_OPTIONS_TTL_SECONDS.
+    """
+    global _filter_options_cache, _filter_options_loaded_at
+
+    if _filter_options_cache is not None and time.time() - _filter_options_loaded_at < FILTER_OPTIONS_TTL_SECONDS:
+        return _filter_options_cache
+
+    conn = None
+    try:
+        conn = get_readonly_connection()
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT show, file_type, COUNT(*) FROM files "
+            "WHERE show IS NOT NULL AND file_type IS NOT NULL GROUP BY show, file_type"
+        )
+        rows = cursor.fetchall()
+        cursor.close()
+        # Read-only work still opens a transaction; end it before the connection is pooled.
+        conn.rollback()
+    finally:
+        if conn:
+            release_readonly_connection(conn)
+
+    shows: Dict[str, int] = {}
+    file_types: Dict[str, int] = {}
+    for show, file_type, count in rows:
+        shows[show] = shows.get(show, 0) + count
+        file_types[file_type] = file_types.get(file_type, 0) + count
+
+    _filter_options_cache = {
+        "shows": [{"name": name, "file_count": shows[name]} for name in sorted(shows)],
+        "file_types": [{"name": name, "file_count": file_types[name]} for name in sorted(file_types)],
+    }
+    _filter_options_loaded_at = time.time()
+    return _filter_options_cache
+
+
 def execute_generated_sql(
     sql: str,
-    limit: int = 100
+    limit: int = 100,
+    filters: Optional[Dict[str, Any]] = None
 ) -> List[Dict[str, Any]]:
     """
     Execute LLM-generated SQL query safely.
@@ -188,6 +239,10 @@ def execute_generated_sql(
     Args:
         sql: SQL query string (must be a single SELECT statement)
         limit: Maximum number of results (default: 100)
+        filters: Optional {"shows": [...], "file_types": [...]} restriction. Enforced by
+            prefixing the query with filtering CTEs (see
+            search_filters.apply_search_filters), so it holds regardless of what the
+            LLM wrote.
 
     Returns:
         List of query results with thumbnail URLs added
@@ -201,6 +256,7 @@ def execute_generated_sql(
         start_time = time.time()
 
         sql = validate_select_only_sql(sql)
+        sql = apply_search_filters(sql, filters)
 
         # Check if query already has LIMIT
         if 'LIMIT' not in sql.upper():

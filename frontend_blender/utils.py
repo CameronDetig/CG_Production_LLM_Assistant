@@ -187,6 +187,11 @@ def get_temp_image_path(prefix: str = "cg_assistant") -> str:
     return os.path.join(temp_dir, f"{prefix}_capture.png")
 
 
+def format_filter_name(name: str) -> str:
+    """Turn a database value such as 'cosmos_laundromat' into 'Cosmos Laundromat'."""
+    return name.replace('_', ' ').title()
+
+
 def truncate_text(text: str, max_length: int = 100) -> str:
     """
     Truncate text to a maximum length with ellipsis.

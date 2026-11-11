@@ -360,44 +360,7 @@ aws lambda update-function-code \
 
 ## 📡 API Documentation
 
-### Endpoint
-
-```
-POST https://your-api-id.execute-api.us-east-1.amazonaws.com/prod/chat
-```
-
-### Request Format
-
-```json
-{
-  "query": "Show me all 4K renders from the lighting project",
-  "user_id": "optional-user-id"
-}
-```
-
-### Response Format (Server-Sent Events)
-
-```
-data: {"type": "start", "metadata_count": 5}
-
-data: {"type": "chunk", "text": "I found "}
-
-data: {"type": "chunk", "text": "3 files "}
-
-data: {"type": "chunk", "text": "matching your criteria..."}
-
-data: {"type": "metadata", "files": [{...}, {...}]}
-
-data: {"type": "end"}
-```
-
-### Testing with cURL
-
-```bash
-curl -X POST https://your-api-id.execute-api.us-east-1.amazonaws.com/prod/chat \
-  -H "Content-Type: application/json" \
-  -d '{"query": "Show me recent renders"}'
-```
+The API reference is in [docs/api.md](docs/api.md): endpoints, authentication, the show and asset-type search filters, and the Server-Sent Events stream returned by `POST /api/chat`. A generated OpenAPI schema that can be opened in any Swagger viewer is in [docs/openapi.json](docs/openapi.json).
 
 ---
 

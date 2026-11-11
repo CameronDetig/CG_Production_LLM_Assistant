@@ -16,7 +16,7 @@
     "noEmit": true,
     "jsx": "react-jsx",
     "types": ["vitest/globals", "@testing-library/jest-dom"],
-    "paths": { "vitest": ["./node_modules/vitest"], "vitest/*": ["./node_modules/vitest/*"], "@testing-library/*": ["./node_modules/@testing-library/*"] }
+    "paths": { "vitest": ["./node_modules/vitest"], "vitest/*": ["./node_modules/vitest/*"], "@testing-library/*": ["./node_modules/@testing-library/*"], "react": ["./node_modules/@types/react"], "react/*": ["./node_modules/@types/react/*"] }
   },
   "include": ["src", "../tests/frontend_web"]
 }

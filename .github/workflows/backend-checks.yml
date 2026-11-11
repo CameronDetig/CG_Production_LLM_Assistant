@@ -17,7 +17,7 @@ jobs:
           python-version: '3.11'
       # The mocked regression tests need only these; the full ML stack is exercised by the image build.
       - name: Install test dependencies
-        run: python -m pip install boto3 'python-jose[cryptography]' requests
+        run: python -m pip install boto3 'python-jose[cryptography]' requests sqlglot==26.2.1
       - name: Run mocked regression tests
         env:
           PYTHONPATH: backend

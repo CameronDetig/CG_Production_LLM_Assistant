@@ -77,6 +77,16 @@ Example queries:
 - "What files have moody lighting?"
 - "Count videos longer than 30 seconds"
 
+### Limiting the Search
+
+By default a query searches every show and every asset type. To narrow it:
+
+1. In the chat panel, expand **Filters** above the message input
+2. Tick the shows and asset types to search in. The number next to each is its file count
+3. Send your query as usual. The reply starts with a `[Searching only]` line listing what was applied
+
+Ticks within one list are alternatives; the two lists combine. Leaving a list with nothing ticked does not limit it. The **X** button clears every tick, and the refresh button reloads the lists from the server (they also load when you log in).
+
 ### Visual Search
 
 #### Upload an Image
@@ -117,6 +127,7 @@ When query results include .blend files:
 | > Chat                        |
 |   [Message history list]      |
 |   [Selected message preview]  |
+|   > Filters (shows / types)   |
 +-------------------------------+
 | > Blend Files (if results)    |
 |   [List of .blend files]      |
@@ -184,10 +195,13 @@ zip -r cg_production_assistant.zip frontend_blender -x "*.pyc" -x "__pycache__/*
 
 This addon requires the CG Production Assistant backend to be running. The backend provides:
 
-- `/auth` - Authentication endpoint
-- `/signup` - User registration
-- `/chat` - Chat with streaming (SSE)
-- `/conversations` - Conversation management
+- `/api/auth` - Authentication endpoint
+- `/api/signup` - User registration
+- `/api/chat` - Chat with streaming (SSE)
+- `/api/conversations` - Conversation management
+- `/api/filters` - Shows and asset types the search can be limited to
+
+See [docs/api.md](../docs/api.md) for the full API reference.
 
 For .blend file downloads to work, the backend must have `SOURCE_BUCKET` configured and the `get_file_download_url()` function implemented.
 

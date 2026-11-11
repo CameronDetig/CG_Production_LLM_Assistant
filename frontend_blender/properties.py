@@ -67,6 +67,25 @@ class CG_BlendFileItem(PropertyGroup):
     )
 
 
+class CG_FilterItem(PropertyGroup):
+    """A show or file type the search can be restricted to."""
+    name: StringProperty(
+        name="Name",
+        description="Value as stored in the database",
+        default=""
+    )
+    selected: BoolProperty(
+        name="Selected",
+        description="Limit the search to this item",
+        default=False
+    )
+    file_count: IntProperty(
+        name="File Count",
+        description="Number of files with this value",
+        default=0
+    )
+
+
 class CG_AssistantPreferences(bpy.types.AddonPreferences):
     """Addon preferences for persistent storage."""
     bl_idname = __package__
@@ -209,6 +228,18 @@ class CG_SceneProperties(PropertyGroup):
         description="Whether to show the login form",
         default=False
     )
+    
+    show_filters_panel: BoolProperty(
+        name="Show Filters",
+        description="Limit the search to specific shows or asset types",
+        default=False
+    )
+    
+    filters_status: StringProperty(
+        name="Filters Status",
+        description="Result of the last attempt to load the filter lists",
+        default=""
+    )
 
 
 # All classes to register
@@ -216,6 +247,7 @@ classes = [
     CG_ChatMessage,
     CG_Conversation,
     CG_BlendFileItem,
+    CG_FilterItem,
     CG_AssistantPreferences,
     CG_SceneProperties,
 ]
@@ -233,11 +265,15 @@ def register():
     bpy.types.Scene.cg_chat_history = CollectionProperty(type=CG_ChatMessage)
     bpy.types.Scene.cg_conversations = CollectionProperty(type=CG_Conversation)
     bpy.types.Scene.cg_blend_files = CollectionProperty(type=CG_BlendFileItem)
+    bpy.types.Scene.cg_filter_shows = CollectionProperty(type=CG_FilterItem)
+    bpy.types.Scene.cg_filter_file_types = CollectionProperty(type=CG_FilterItem)
 
 
 def unregister():
     """Unregister property classes."""
     # Remove scene properties
+    del bpy.types.Scene.cg_filter_file_types
+    del bpy.types.Scene.cg_filter_shows
     del bpy.types.Scene.cg_blend_files
     del bpy.types.Scene.cg_conversations
     del bpy.types.Scene.cg_chat_history

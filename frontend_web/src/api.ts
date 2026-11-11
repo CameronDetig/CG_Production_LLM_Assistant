@@ -1,6 +1,6 @@
 import { freshSession } from "./auth";
 import { SSEParser } from "./sse";
-import type { ConversationSummary, Message, RuntimeConfig, SSEMessage } from "./types";
+import type { ConversationSummary, FilterOptions, Message, RuntimeConfig, SSEMessage } from "./types";
 
 const EMPTY_SHA256 = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 
@@ -40,6 +40,13 @@ export async function warmUpBackend(config: RuntimeConfig): Promise<void> {
   } catch {
     // Warmup only improves first-question latency; failures must not affect the session.
   }
+}
+
+/** Shows and asset types a search can be limited to. */
+export async function getFilterOptions(config: RuntimeConfig): Promise<FilterOptions> {
+  const response = await authenticatedFetch(config, "/api/filters");
+  if (!response.ok) throw new Error("Unable to load search filters");
+  return (await response.json()) as FilterOptions;
 }
 
 export async function getConversation(config: RuntimeConfig, id: string): Promise<Message[]> {

@@ -113,7 +113,7 @@ th { color: var(--accent); background: #151a13; }
 .upload-preview-inline { max-width: 260px; max-height: 180px; object-fit: contain; border: 1px solid #323844; margin-bottom: 12px; }
 
 .composer-wrap { padding: 12px max(30px, calc((100% - 900px) / 2)) 18px; background: linear-gradient(transparent, #0c0f14 25%); }
-.composer { border: 1px solid #303642; background: #13171e; display: grid; grid-template-columns: auto 1fr auto; align-items: end; padding: 9px; box-shadow: 0 14px 35px #0005; }
+.composer { border: 1px solid #303642; background: #13171e; display: grid; grid-template-columns: auto auto 1fr auto; align-items: end; padding: 9px; box-shadow: 0 14px 35px #0005; }
 .composer:focus-within { border-color: #536035; }
 .composer textarea { resize: none; max-height: 140px; min-height: 42px; padding: 10px; border: 0; outline: 0; color: #eef0f5; background: transparent; line-height: 1.5; }
 .composer textarea::placeholder { color: #626a79; }
@@ -124,6 +124,33 @@ th { color: var(--accent); background: #151a13; }
 .image-chip { display: inline-grid; grid-template-columns: 34px auto 28px; align-items: center; gap: 8px; background: #171b22; border: 1px solid #303642; margin-bottom: 8px; padding: 5px; font-size: 11px; }
 .image-chip img { width: 34px; height: 34px; object-fit: cover; }.image-chip button, .toast button { border: 0; background: transparent; color: #8d95a4; cursor: pointer; }
 .toast { margin-bottom: 8px; justify-content: space-between; }.toast span { flex: 1; }
+.filter-menu { position: relative; }
+.filter-button { width: 42px; height: 42px; display: grid; place-items: center; border: 0; background: transparent; color: #7d8697; cursor: pointer; position: relative; }
+.filter-button:hover, .filter-button.active { color: var(--accent); }
+.filter-button:disabled { opacity: .5; cursor: default; }
+.filter-badge { position: absolute; top: 3px; right: 1px; min-width: 16px; height: 16px; padding: 0 4px; display: grid; place-items: center; background: var(--accent); color: #111; font: 700 10px ui-monospace, "Cascadia Code", monospace; }
+.filter-popover { position: absolute; left: -51px; bottom: calc(100% + 18px); z-index: 10; width: min(520px, calc(100vw - 40px)); padding: 14px; border: 1px solid #303642; background: #13171e; box-shadow: 0 18px 50px #000a; }
+.filter-popover-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font-size: 13px; }
+.filter-popover-head button { border: 0; background: transparent; color: var(--accent); cursor: pointer; font-size: 12px; padding: 2px 0; }
+.filter-popover-head button:disabled { color: #596171; cursor: default; }
+.filter-groups { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.filter-groups fieldset { border: 0; margin: 0; padding: 0; min-width: 0; }
+.filter-groups legend { width: 100%; display: flex; justify-content: space-between; padding: 0 0 6px; color: #9199a9; font: 500 11px ui-monospace, "Cascadia Code", monospace; text-transform: uppercase; letter-spacing: .08em; }
+.filter-groups legend span { color: #596171; text-transform: none; letter-spacing: 0; }
+.filter-options { max-height: 240px; overflow-y: auto; border: 1px solid #252a35; background: #0d1015; }
+.filter-options label { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 9px; padding: 7px 9px; font-size: 13px; cursor: pointer; }
+.filter-options label:hover { background: #171b22; }
+.filter-options label span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.filter-options input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+.filter-options input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.filter-options small { color: #596171; font: 500 10px ui-monospace, "Cascadia Code", monospace; }
+.filter-options p, .filter-popover > p.muted { margin: 0; padding: 9px; font-size: 12px; }
+.filter-hint { margin: 10px 0 0; color: #596171; font-size: 11px; }
+.filter-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.filter-chip { display: inline-flex; align-items: center; gap: 4px; padding: 4px 4px 4px 9px; background: #1c2319; border: 1px solid #3c4432; color: #d9e6b3; font-size: 11px; }
+.filter-chip button { border: 0; background: transparent; color: #8d95a4; cursor: pointer; display: grid; place-items: center; padding: 2px; }
+.filter-chip button:hover { color: #fff; }
+.filter-scope { margin: 8px 0 0; color: #8e96a8; font: 500 11px ui-monospace, "Cascadia Code", monospace; }
 .mobile-only, .backdrop { display: none; }
 
 @media (max-width: 760px) {
@@ -138,6 +165,7 @@ th { color: var(--accent); background: #151a13; }
   .message { grid-template-columns: 34px 1fr; gap: 10px; }
   .message.user { grid-template-columns: 1fr 34px; }.message-avatar { width: 30px; height: 30px; }
   .login-card { padding: 34px 25px; }.brand-mark { margin-bottom: 36px; }
+  .filter-popover { width: calc(100vw - 24px); }.filter-groups { grid-template-columns: 1fr; }.filter-options { max-height: 150px; }
 }
 
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; } }
