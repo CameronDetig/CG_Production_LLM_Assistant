@@ -284,11 +284,3 @@ def execute_generated_sql(
     finally:
         if conn:
             release_readonly_connection(conn)
-
-
-def close_all_connections():
-    """Close all database connections (cleanup)."""
-    global connection_pool
-    if connection_pool:
-        connection_pool.closeall()
-        logger.info("All database connections closed")

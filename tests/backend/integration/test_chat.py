@@ -1,9 +1,12 @@
 """
-Test script for the chatbot functionality.
-Runs the lambda_handler locally with a sample chat event.
+End-to-end chat check against live services.
+Sends one query through the deployed FastAPI app (backend/api_app.py) in-process and prints the
+SSE stream. Uses the real database, DynamoDB conversation table, embeddings and Bedrock from
+backend/.env; only Cognito sign-in is skipped by overriding the auth dependency.
+
+Usage (from the repo root):  python tests/backend/integration/test_chat.py ["your query"]
 """
 
-import json
 import os
 import sys
 from dotenv import load_dotenv
@@ -11,26 +14,20 @@ from dotenv import load_dotenv
 # Load environment variables from backend/.env
 # (this file lives in tests/backend/integration/)
 backend_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'backend')
-dotenv_path = os.path.join(backend_dir, '.env')
-load_dotenv(dotenv_path)
+load_dotenv(os.path.join(backend_dir, '.env'))
 
 # Add backend directory to path
 sys.path.insert(0, backend_dir)
 
-from lambda_function import lambda_handler
+from fastapi.testclient import TestClient  # noqa: E402
+
+from api_app import app, authenticated_user  # noqa: E402
+
 
 def test_chat_query(query_text="Show me the most recent images from the spring show", user_id="test_user"):
-    """Test chatbot query with custom text"""
-    
-    event = {
-        'body': json.dumps({
-            'query': query_text,
-            'user_id': user_id
-        })
-    }
-    
-    context = {}  # Mock context
-    
+    """Stream one chat request and print each SSE event as it arrives."""
+    app.dependency_overrides[authenticated_user] = lambda: user_id
+
     print("=" * 80)
     print("Testing Chat Query")
     print("=" * 80)
@@ -38,43 +35,28 @@ def test_chat_query(query_text="Show me the most recent images from the spring s
     print(f"User:  {user_id}")
     print("-" * 80)
     print("Response:")
-    
+
     try:
-        response = lambda_handler(event, context)
-        
-        if response['statusCode'] == 200:
-            # Handle streaming response
-            if callable(response.get('body')):
-                for chunk in response['body']:
+        with TestClient(app) as client:
+            with client.stream("POST", "/api/chat", json={"query": query_text}) as response:
+                if response.status_code != 200:
+                    print(f"Error: {response.status_code}")
+                    print(response.read().decode())
+                    return
+                for chunk in response.iter_text():
                     print(chunk, end='', flush=True)
-            else:
-                body = response['body']
-                # Try to pretty print JSON if possible
-                try:
-                    if isinstance(body, str):
-                        parsed = json.loads(body)
-                        print(json.dumps(parsed, indent=2))
-                    else:
-                        print(body)
-                except:
-                    print(body)
-        else:
-            print(f"Error: {response['statusCode']}")
-            print(response['body'])
-            
     except Exception as e:
         print(f"❌ Error during test: {str(e)}")
         import traceback
         traceback.print_exc()
-    
+    finally:
+        app.dependency_overrides.clear()
+
     print("\n" + "=" * 80)
 
 
 if __name__ == '__main__':
-    # Default test
     if len(sys.argv) > 1:
-        # Use command line argument as query if provided
-        query = " ".join(sys.argv[1:])
-        test_chat_query(query)
+        test_chat_query(" ".join(sys.argv[1:]))
     else:
         test_chat_query()

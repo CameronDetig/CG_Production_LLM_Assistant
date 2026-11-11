@@ -46,7 +46,6 @@ COPY --from=builder /install ${LAMBDA_TASK_ROOT}
 COPY --from=builder /install/model_cache ${LAMBDA_TASK_ROOT}/model_cache
 
 # Copy all Python function code
-COPY lambda_function.py ${LAMBDA_TASK_ROOT}/
 COPY api_app.py ${LAMBDA_TASK_ROOT}/
 COPY src/ ${LAMBDA_TASK_ROOT}/src/
 

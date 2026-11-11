@@ -127,25 +127,19 @@ add a connection to the cg-metadate-db database
 
 ## Step 9: Test the Function
 
+The image runs a FastAPI server behind the Lambda Web Adapter, so test it over HTTP rather than with a
+raw `aws lambda invoke` payload:
+
 ```bash
-# Create test event
-cat > test-payload.json <<EOF
-{
-  "body": "{\"query\": \"Show me recent renders\", \"user_id\": \"test\"}"
-}
-EOF
+# Through the deployed site (CloudFront -> API Gateway -> Lambda)
+curl https://<cloudfront-domain>/api/health   # {"status":"ok"}
 
-# Invoke function
-aws lambda invoke \
-    --function-name $FUNCTION_NAME \
-    --cli-binary-format raw-in-base64-out \
-    --payload file://test-payload.json \
-    --region $REGION \
-    response.json
-
-# View response
-cat response.json
+# Or the image itself, locally
+docker run --rm -p 8080:8080 --env-file .env $REPO_NAME
+curl http://localhost:8080/health
 ```
+
+`python tests/smoke/smoke.py https://<cloudfront-domain>` runs the full post-deploy check.
 
 ## Updating the Function
 
@@ -253,7 +247,7 @@ See `docs/dynamodb_vpc_endpoint_setup.md` for detailed instructions.
 
 - **ECR Storage**: ~$0.10/GB/month (~$0.05/month for this image)
 - **Lambda**: Same pricing as ZIP deployment
-- **Tip**: `redeploy_image.sh` auto-increments version tags (v1, v2, v3, ...) on every deploy and never deletes old ones, so apply the lifecycle policy below once so old versions expire automatically instead of accumulating indefinitely:
+- **Tip**: the release workflow (`deploy-backend.yml`) adds an incrementing version tag (v1, v2, v3, ...) to every image it pushes and never deletes old ones, so apply the lifecycle policy below once so old versions expire automatically instead of accumulating indefinitely:
 
 ```bash
 # One-time setup: keep only the last 3 tagged images, expire the rest

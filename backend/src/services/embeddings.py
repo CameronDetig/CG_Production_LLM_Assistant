@@ -47,21 +47,6 @@ CLIP_MODEL_PATH = os.path.join(MODEL_CACHE_DIR, "clip_model")
 logger.info(f"Model cache directory: {MODEL_CACHE_DIR}")
 
 
-def preload_models():
-    """
-    Preload models during Lambda initialization to reduce cold start impact.
-    Call this in lambda_function.py at module level.
-    """
-    try:
-        logger.info("Preloading embedding models...")
-        get_text_embedding_model()
-        # Preload CLIP for image searches to avoid loading during queries
-        get_clip_model()
-        logger.info("Embedding models preloaded successfully")
-    except Exception as e:
-        logger.warning(f"Failed to preload models: {str(e)}")
-
-
 def get_text_embedding_model() -> SentenceTransformer:
     """
     Get or initialize the text embedding model.

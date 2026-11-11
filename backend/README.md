@@ -30,30 +30,25 @@ See [docs/SCHEMA.md](docs/SCHEMA.md) for details.
 
 ## Project Structure
 
-The backend is organized into logical modules:
+The container runs `api_app.py`, a FastAPI app, with uvicorn. The AWS Lambda Web Adapter
+(copied into `/opt/extensions` by the `Dockerfile`) turns each Lambda invocation into an HTTP request
+to that server, so there is no Lambda handler function. The routes are documented in [`docs/api.md`](../docs/api.md).
 
-- **`src/core/`** - Core business logic (agent, tools)
-- **`src/services/`** - External integrations (database, Bedrock, S3, DynamoDB)
-- **`src/auth/`** - Authentication (Cognito)
-- **`testing/`** - Test files
-- **`scripts/`** - Deployment and setup scripts
-- **`lambda_function.py`** - Lambda entry point (root level)
-
----
-
-## Files Created
-
-| File | Purpose |
+| Path | Purpose |
 |------|---------|
-| `lambda_function.py` | Main Lambda handler with SSE streaming |
-| `database.py` | PostgreSQL queries with pgvector search |
-| `embeddings.py` | Text & image embedding generation |
-| `bedrock_client.py` | Llama model integration |
-| `requirements.txt` | Python dependencies |
-| `Dockerfile` | Container deployment config |
-| `.env.example` | Environment variables template |
-| `iam_policy.json` | IAM permissions |
-| `SCHEMA.md` | Database documentation |
+| `api_app.py` | FastAPI app: auth, chat (SSE stream), conversations, filters, warmup, health |
+| `src/core/chat_agent.py` | LangGraph agent that plans, generates and checks SQL; prompt context in `semantic_file.yaml` |
+| `src/core/download_models.py` | Downloads the embedding models into the image at build time |
+| `src/services/database.py` | PostgreSQL pools, read-only SQL execution, filter options |
+| `src/services/search_filters.py` | Applies show/file-type filters to generated SQL |
+| `src/services/embeddings.py` | Text (MiniLM) and image (CLIP) embeddings |
+| `src/services/bedrock_client.py` | Bedrock model calls, streaming and not |
+| `src/services/conversations.py` | DynamoDB conversation history |
+| `src/services/streaming.py` | SSE formatting and JSON/DynamoDB value conversion |
+| `src/services/s3_thumbnail_utils.py` | Presigned thumbnail and download URLs |
+| `src/services/warmup.py` | Pre-loads models and database pools after login |
+| `src/auth/cognito.py` | Cognito token validation, sign-in and sign-up |
+| `scripts/` | Local model download, OpenAPI export, ECR lifecycle policy |
 
 ---
 
@@ -143,22 +138,19 @@ BEDROCK_MODEL_ID=us.meta.llama3-2-11b-instruct-v1:0
 
 ## Testing
 
-### Local Test
+### Local server
 
 ```bash
 pip install -r requirements.txt python-dotenv
 cp .env.example .env
-# Edit .env with your credentials
-python test_local.py
+# Edit .env with your credentials, then load it into the shell
+set -a; source .env; set +a
+uvicorn api_app:app --reload --port 8080
+curl http://localhost:8080/health
 ```
 
-### API Test
-
-```bash
-curl -X POST https://your-api-id.execute-api.us-east-1.amazonaws.com/prod/chat \
-  -H "Content-Type: application/json" \
-  -d '{"query": "Show me Blender files with Cycles renders"}'
-```
+Authenticated routes need a Cognito token in `Authorization: Bearer <token>`; see [`docs/api.md`](../docs/api.md).
+Service checks and an end-to-end chat script live in `tests/backend/integration/` (see [`docs/testing.md`](../docs/testing.md)).
 
 ---
 

@@ -1,5 +1,5 @@
 """
-Local testing script for Lambda function.
+Local connectivity checks for the backend's services (PostgreSQL, DynamoDB, S3, Bedrock, embeddings).
 Run this to test functionality with a local database before deploying to AWS.
 """
 
@@ -16,8 +16,6 @@ load_dotenv(os.path.join(backend_dir, '.env'))
 
 # Add backend directory to path
 sys.path.insert(0, backend_dir)
-
-from lambda_function import lambda_handler
 
 
 def test_database_connection():
