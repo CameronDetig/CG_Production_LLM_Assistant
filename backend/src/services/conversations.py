@@ -246,38 +246,6 @@ def get_conversation_context(conversation_id: str, user_id: str, max_messages: i
     return messages[-max_messages:] if len(messages) > max_messages else messages
 
 
-def update_conversation_title(conversation_id: str, user_id: str, title: str) -> bool:
-    """
-    Update conversation title (e.g., auto-generate from first query).
-    
-    Args:
-        conversation_id: UUID of conversation
-        user_id: User identifier
-        title: New title
-        
-    Returns:
-        True if successful, False otherwise
-    """
-    try:
-        table.update_item(
-            Key={
-                'conversation_id': conversation_id,
-                'user_id': user_id
-            },
-            UpdateExpression='SET title = :title',
-            ExpressionAttributeValues={
-                ':title': title
-            }
-        )
-        
-        logger.info(f"Updated title for conversation {conversation_id}")
-        return True
-        
-    except ClientError as e:
-        logger.error(f"Error updating conversation title: {str(e)}", exc_info=True)
-        return False
-
-
 def generate_title_from_query(query: str, max_words: int = 8, max_chars: int = 70) -> str:
     """
     Generate a conversation title from the first user query.

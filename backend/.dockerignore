@@ -8,8 +8,6 @@ __pycache__
 .gitignore
 README.md
 docs
-testing
 scripts
-test-payload.json
 *.pyc
 .DS_Store

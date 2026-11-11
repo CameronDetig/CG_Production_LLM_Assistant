@@ -4,19 +4,19 @@ All tests live in the top-level `tests/` folder, in a subfolder per component. R
 
 | Folder | Covers | Framework | Needs live services | Runs in CI |
 |---|---|---|---|---|
-| `tests/backend/` | Streaming helpers, Cognito token validation, warmup, search filter SQL rewriting | `unittest` and plain asserts | No (mocked) | Yes, `backend-checks.yml` `test` job |
-| `tests/backend/integration/` | Full Lambda handler against a real database, Bedrock and Cognito | Scripts | **Yes** (needs `backend/.env`) | No |
+| `tests/backend/` | API routes and chat stream (`api_app.py` via FastAPI `TestClient`), streaming helpers, Cognito token validation, warmup, search filter SQL rewriting | `unittest` and plain asserts | No (mocked) | Yes, `backend-checks.yml` `test` job |
+| `tests/backend/integration/` | Service connectivity, and one chat through `api_app.py` against the real database, DynamoDB, embeddings and Bedrock (auth bypassed) | Scripts | **Yes** (needs `backend/.env`) | No |
 | `tests/frontend_web/` | SSE parsing, Cognito session and PKCE, search filter menu | vitest | No | Yes, `deploy-frontend.yml` `verify` job |
 | `tests/smoke/` | Post-deploy checks of the live site, plus unit tests of the check logic | `unittest` (script uses `urllib`) | Live site only, no credentials | Unit tests in `backend-checks.yml`; the script runs after every release (see below) |
 | `tests/frontend_blender/` | Blender add-on HTTP client (mocked HTTP) | `unittest` | No | Yes, `backend-checks.yml` `test` job |
 | `tests/infra/` | Release tooling in `infra/tools/` (`release.py`) | `unittest` | No | Yes, `infra-checks.yml` and `deploy-backend.yml` |
 
-`backend/testing/` is not a test folder: it holds the local Flask server (`lambda_server.py`) and a sample payload.
+To run the API itself locally, see "Local server" in `backend/README.md`.
 
 ## Running
 
 ```sh
-# Backend (mocked). Needs boto3, python-jose[cryptography], requests and sqlglot.
+# Backend (mocked). Needs boto3, python-jose[cryptography], requests, sqlglot, fastapi and httpx.
 python -m unittest discover -s tests/backend -p 'test_*.py'
 python tests/backend/test_warmup.py
 

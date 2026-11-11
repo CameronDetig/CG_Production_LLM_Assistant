@@ -151,19 +151,6 @@ def extract_user_from_token(token: str) -> Optional[str]:
     return user_id
 
 
-def is_demo_user(user_id: str) -> bool:
-    """
-    Check if user is the demo account.
-    
-    Args:
-        user_id: User identifier
-        
-    Returns:
-        True if demo user, False otherwise
-    """
-    return user_id == 'demo@cgassistant.com'
-
-
 def compute_secret_hash(username: str) -> str:
     """
     Compute SECRET_HASH for Cognito authentication.
@@ -337,73 +324,3 @@ def signup_user(email: str, password: str) -> Dict[str, Any]:
             'success': False,
             'message': f'Signup error: {str(e)}'
         }
-
-
-def refresh_access_token(refresh_token: str) -> Optional[Dict[str, str]]:
-    """
-    Refresh access token using refresh token.
-    
-    Args:
-        refresh_token: Refresh token from previous authentication
-        
-    Returns:
-        Dict with new 'id_token' and 'access_token', or None if refresh fails
-    """
-    try:
-        cognito_client = boto3.client('cognito-idp', region_name=COGNITO_REGION)
-        
-        response = cognito_client.initiate_auth(
-            ClientId=COGNITO_CLIENT_ID,
-            AuthFlow='REFRESH_TOKEN_AUTH',
-            AuthParameters={
-                'REFRESH_TOKEN': refresh_token
-            }
-        )
-        
-        auth_result = response.get('AuthenticationResult')
-        
-        if not auth_result:
-            return None
-        
-        return {
-            'id_token': auth_result['IdToken'],
-            'access_token': auth_result['AccessToken']
-        }
-        
-    except Exception as e:
-        logger.error(f"Error refreshing token: {str(e)}", exc_info=True)
-        return None
-
-
-def extract_user_from_event(event: Dict[str, Any]) -> Optional[str]:
-    """
-    Extract user ID from Lambda event (API Gateway request).
-    Checks Authorization header for Bearer token.
-    
-    Args:
-        event: Lambda event dict from API Gateway
-        
-    Returns:
-        User ID if valid token, None otherwise
-        
-    Example:
-        >>> user_id = extract_user_from_event(event)
-        >>> print(user_id)
-        'demo@cgassistant.com'
-    """
-    # Get Authorization header
-    headers = event.get('headers', {})
-    auth_header = headers.get('Authorization') or headers.get('authorization')
-    
-    if not auth_header:
-        logger.warning("No Authorization header found")
-        return None
-    
-    # Extract token from "Bearer <token>"
-    parts = auth_header.split()
-    if len(parts) != 2 or parts[0].lower() != 'bearer':
-        logger.warning("Invalid Authorization header format")
-        return None
-    
-    token = parts[1]
-    return extract_user_from_token(token)

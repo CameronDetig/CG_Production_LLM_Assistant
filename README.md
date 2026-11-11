@@ -267,91 +267,30 @@ nano .env  # or use any text editor
 
 Fill in your PostgreSQL and AWS details.
 
-### 3. Test Locally
+### 3. Run and Test Locally
 
 ```bash
-# Run local tests
-python test_local.py
+# Serve the API (the same FastAPI app the Lambda container runs)
+set -a; source .env; set +a
+uvicorn api_app:app --reload --port 8080
+
+# From the repo root: check service connectivity, then send one chat end to end
+python tests/backend/integration/test_local.py
+python tests/backend/integration/test_chat.py "Show me recent renders"
 ```
 
-This will test:
-- ✅ Database connectivity
-- ✅ Bedrock API access
-- ✅ Full Lambda function flow
+See [docs/testing.md](docs/testing.md) for the mocked test suites.
 
 ---
 
 ## 🚢 Deployment
 
-### Recommended: Container Deployment
+The backend ships as a container image (the embedding models are too large for a ZIP package). In the image,
+uvicorn runs `backend/api_app.py` and the AWS Lambda Web Adapter forwards Lambda invocations to it.
 
-> [!WARNING]
-> **ZIP deployment will not work** due to large embedding models (~500MB). You must use container deployment.
-
-#### Step 1: Build Docker Image
-
-```bash
-# Install dependencies to package directory
-pip install -r requirements.txt -t package/
-
-# Copy function files
-cp lambda_function.py bedrock_client.py database.py package/
-
-# Create ZIP file
-cd package
-zip -r ../deployment.zip .
-cd ..
-
-# Upload to Lambda (using AWS CLI)
-aws lambda update-function-code \
-    --function-name cg-production-chatbot \
-    --zip-file fileb://deployment.zip \
-    --region us-east-1
-```
-
-#### Step 2: Create ECR Repository
-
-```bash
-# Get your AWS account ID
-AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-REGION="us-east-1"
-REPO_NAME="cg-chatbot"
-
-# Create ECR repository
-aws ecr create-repository --repository-name $REPO_NAME --region $REGION
-```
-
-#### Step 3: Authenticate Docker with ECR
-
-```bash
-# Login to ECR
-aws ecr get-login-password --region $REGION | \
-    docker login --username AWS --password-stdin \
-    $AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com
-```
-
-#### Step 4: Build and Push Image
-
-```bash
-# Build Docker image
-docker build -t $REPO_NAME .
-
-# Tag for ECR
-docker tag $REPO_NAME:latest \
-    $AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME:latest
-
-# Push to ECR
-docker push $AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME:latest
-```
-
-#### Step 5: Update Lambda Function
-
-```bash
-# Update Lambda to use container image
-aws lambda update-function-code \
-    --function-name cg-production-chatbot \
-    --image-uri $AWS_ACCOUNT_ID.dkr.ecr.$REGION.amazonaws.com/$REPO_NAME:latest
-```
+Do not push images or update the function by hand. A push to `main` builds the image and creates a Terraform
+release plan (`deploy-backend.yml`), and a separate manual approval applies it. See [infra/README.md](infra/README.md)
+and [docs/ci-cd.md](docs/ci-cd.md).
 
 > [!TIP]
 > **Cold Start Optimization**: The first request after deployment may take 10-15 seconds due to model loading. Subsequent requests will be much faster as models are cached in Lambda memory.
@@ -452,10 +391,6 @@ ADD COLUMN embedding vector(1536);
 ```
 
 Uncomment `get_similar_files_vector()` in `database.py`.
-
-### Conversation Storage (DynamoDB)
-
-Uncomment `store_conversation()` in `lambda_function.py` and create DynamoDB table.
 
 ### Model Routing
 

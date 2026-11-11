@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-`backend/lambda_function.py` handles API requests. Backend code is divided into `src/core/` for agent logic, `src/services/` for database/model/storage integrations, and `src/auth/` for Cognito authentication. `backend/testing/` holds the local Flask server and its sample payload; all tests live under the top-level `tests/` folder, one subfolder per component (`backend/`, `frontend_web/`, `frontend_blender/`, `infra/`); `backend/scripts/` and `backend/docs/` cover deployment. Cross-cutting documentation lives in the top-level `docs/` (start at `docs/README.md`); components may have their own `docs/` folder. `specs/` is a local, git-ignored folder of work specs and is not documentation.
+`backend/api_app.py` is the FastAPI app that serves every API route; in production the container runs it with uvicorn behind the AWS Lambda Web Adapter (see `backend/Dockerfile`), so there is no Lambda handler function. Backend code is divided into `src/core/` for agent logic, `src/services/` for database/model/storage integrations, and `src/auth/` for Cognito authentication. All tests live under the top-level `tests/` folder, one subfolder per component (`backend/`, `frontend_web/`, `frontend_blender/`, `infra/`); `backend/scripts/` and `backend/docs/` cover deployment. Cross-cutting documentation lives in the top-level `docs/` (start at `docs/README.md`); components may have their own `docs/` folder. `specs/` is a local, git-ignored folder of work specs and is not documentation.
 
 `frontend_web/` implements the browser web UI. `frontend_blender/` contains the Blender add-on, including operators, panels, properties, and API client. `.github/workflows/` contains backend and web frontend deployment workflows.
 
@@ -14,7 +14,7 @@ Use separate virtual environments as needed and run commands from the indicated 
 
 - `backend/`: `python -m pip install -r requirements.txt` installs component dependencies.
 - Repo root: `PYTHONPATH=backend python -m unittest discover -s tests/backend -p 'test_*.py'` runs the mocked backend tests; `python tests/backend/integration/test_local.py` exercises database and backend integrations using configured services. See `docs/testing.md` for every suite.
-- `backend/`: install Flask with `python -m pip install flask`, then run `python testing/lambda_server.py` to serve the local API on port 5000.
+- `backend/`: `uvicorn api_app:app --reload --port 8080` serves the same API locally (port 8080 matches the container).
 - `backend/`: `docker buildx build --platform linux/amd64 --provenance=false --sbom=false --load -t cg-chatbot .` builds the backend container.
 
 Install the Blender add-on using `frontend_blender/README.md` and verify it inside Blender.

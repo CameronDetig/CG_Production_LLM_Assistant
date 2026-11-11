@@ -7,7 +7,7 @@ Source files are in a separate bucket.
 
 import os
 import logging
-from typing import Optional, List, Dict
+from typing import Optional
 import boto3
 from botocore.exceptions import ClientError
 
@@ -112,87 +112,3 @@ def get_file_download_url(file_path: str, expiration: int = SOURCE_URL_EXPIRATIO
     except Exception as e:
         logger.error(f"Unexpected error generating download URL: {str(e)}", exc_info=True)
         return None
-
-
-def batch_get_thumbnail_urls(thumbnail_paths: List[str], expiration: int = DEFAULT_EXPIRATION) -> Dict[str, Optional[str]]:
-    """
-    Generate presigned URLs for multiple thumbnails efficiently.
-    
-    Args:
-        thumbnail_paths: List of S3 keys for thumbnails
-        expiration: URL expiration time in seconds
-        
-    Returns:
-        Dictionary mapping thumbnail_path -> presigned_url
-        
-    Example:
-        >>> paths = ['image/123_thumb.jpg', 'video/456_thumb.jpg']
-        >>> urls = batch_get_thumbnail_urls(paths)
-        >>> print(urls['image/123_thumb.jpg'])
-        'https://...'
-    """
-    result = {}
-    
-    for path in thumbnail_paths:
-        result[path] = get_thumbnail_url(path, expiration)
-    
-    return result
-
-
-def get_thumbnail_path(file_id: int, file_type: str, show: str = 'other') -> str:
-    """
-    Construct S3 key for thumbnail based on file ID, type, and show.
-    
-    Args:
-        file_id: Database file ID
-        file_type: File type ('image', 'video', 'blend')
-        show: Show name (defaults to 'other' for files not in a specific show)
-        
-    Returns:
-        S3 key for thumbnail following show-based structure
-        
-    Example:
-        >>> path = get_thumbnail_path(123, 'image', 'show1')
-        >>> print(path)
-        'show1/image/123_thumb.jpg'
-        
-        >>> path = get_thumbnail_path(456, 'blend', 'other')
-        >>> print(path)
-        'other/blend/456_thumb.jpg'
-    """
-    # Map file types to S3 folders
-    folder_map = {
-        'image': 'images',
-        'video': 'videos',
-        'blend': 'blend'
-    }
-    
-    folder = folder_map.get(file_type, 'images')
-    return f"{show}/{folder}/{file_id}_thumb.jpg"
-
-
-
-def check_thumbnail_exists(thumbnail_path: str) -> bool:
-    """
-    Check if thumbnail exists in S3.
-    
-    Args:
-        thumbnail_path: S3 key for thumbnail
-        
-    Returns:
-        True if thumbnail exists, False otherwise
-    """
-    try:
-        key = thumbnail_path.replace(f's3://{BUCKET_NAME}/', '')
-        
-        s3_client.head_object(Bucket=BUCKET_NAME, Key=key)
-        return True
-        
-    except ClientError as e:
-        if e.response['Error']['Code'] == '404':
-            return False
-        logger.error(f"Error checking thumbnail existence: {str(e)}")
-        return False
-    except Exception as e:
-        logger.error(f"Unexpected error checking thumbnail: {str(e)}")
-        return False
