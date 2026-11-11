@@ -184,12 +184,23 @@ class APIClient:
         """
         return self._make_request('DELETE', f'/api/conversations/{conversation_id}')
     
+    def get_filters(self) -> APIResponse:
+        """
+        Get the shows and file types a search can be restricted to.
+        
+        Returns:
+            APIResponse with 'shows' and 'file_types' lists of
+            {'name', 'file_count'} entries
+        """
+        return self._make_request('GET', '/api/filters')
+    
     def chat_stream(
         self,
         query: str,
         conversation_id: Optional[str] = None,
         image_base64: Optional[str] = None,
-        on_chunk: Optional[Callable[[str], None]] = None
+        on_chunk: Optional[Callable[[str], None]] = None,
+        filters: Optional[Dict[str, List[str]]] = None
     ) -> APIResponse:
         """
         Send a chat message and stream the response.
@@ -199,6 +210,8 @@ class APIClient:
             conversation_id: Optional conversation ID
             image_base64: Optional base64-encoded image
             on_chunk: Callback for each response chunk
+            filters: Optional {'shows': [...], 'file_types': [...]} restriction.
+                Empty lists mean no restriction and are not sent.
             
         Returns:
             APIResponse with final result
@@ -211,6 +224,10 @@ class APIClient:
             payload['conversation_id'] = conversation_id
         if image_base64:
             payload['uploaded_image_base64'] = image_base64
+        if filters:
+            active = {key: list(values) for key, values in filters.items() if values}
+            if active:
+                payload['filters'] = active
         
         # Build headers
         headers = {
@@ -251,6 +268,17 @@ class APIClient:
                             # Process event for text accumulation
                             if current_event == 'enhanced_query':
                                 chunk = f"\n[Enhanced Query]: {data.get('query', '')}\n"
+                                accumulated_text += chunk
+                                if on_chunk:
+                                    on_chunk(chunk)
+                            
+                            elif current_event == 'filters':
+                                parts = []
+                                if data.get('shows'):
+                                    parts.append("shows: " + ", ".join(data['shows']))
+                                if data.get('file_types'):
+                                    parts.append("types: " + ", ".join(data['file_types']))
+                                chunk = f"\n[Searching only]: {'; '.join(parts)}\n"
                                 accumulated_text += chunk
                                 if on_chunk:
                                     on_chunk(chunk)
@@ -387,7 +415,8 @@ class AsyncAPIClient:
         query: str,
         conversation_id: Optional[str] = None,
         image_base64: Optional[str] = None,
-        on_chunk: Optional[Callable[[str], None]] = None
+        on_chunk: Optional[Callable[[str], None]] = None,
+        filters: Optional[Dict[str, List[str]]] = None
     ):
         """Start async chat with streaming."""
         self._run_in_thread(
@@ -395,7 +424,8 @@ class AsyncAPIClient:
             query,
             conversation_id,
             image_base64,
-            on_chunk
+            on_chunk,
+            filters
         )
 
 

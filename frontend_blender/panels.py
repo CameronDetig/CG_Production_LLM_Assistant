@@ -7,7 +7,7 @@ import bpy
 from bpy.types import Panel, UIList
 import os
 
-from .utils import truncate_text, wrap_text
+from .utils import format_filter_name, truncate_text, wrap_text
 
 
 # ============================================================================
@@ -219,6 +219,9 @@ class CG_PT_ChatPanel(Panel):
         
         layout.separator()
         
+        # Search filters: limit the query to specific shows / asset types
+        self.draw_filters(context, layout)
+        
         # Message input section (combined from InputPanel)
         layout.label(text="New Message:", icon='EDITMODE_HLT')
         layout.prop(props, "message_input", text="")
@@ -232,6 +235,47 @@ class CG_PT_ChatPanel(Panel):
             row.operator("cg_assistant.send_message", text="Send with Image", icon='EXPORT')
         else:
             row.operator("cg_assistant.send_message", text="Send Message", icon='EXPORT')
+
+
+    def draw_filters(self, context, layout):
+        scene = context.scene
+        props = scene.cg_assistant
+        active = sum(item.selected for item in scene.cg_filter_shows) + sum(
+            item.selected for item in scene.cg_filter_file_types
+        )
+        
+        box = layout.box()
+        header = box.row(align=True)
+        header.prop(
+            props, "show_filters_panel",
+            text=f"Filters ({active} active)" if active else "Filters (searching everything)",
+            icon='TRIA_DOWN' if props.show_filters_panel else 'TRIA_RIGHT',
+            emboss=False
+        )
+        if active:
+            header.operator("cg_assistant.clear_filters", text="", icon='X')
+        header.operator("cg_assistant.refresh_filters", text="", icon='FILE_REFRESH')
+        
+        if not props.show_filters_panel:
+            return
+        
+        if props.filters_status:
+            box.label(text=props.filters_status, icon='INFO')
+        
+        if not scene.cg_filter_shows and not scene.cg_filter_file_types:
+            if not props.filters_status:
+                box.label(text="Press refresh to load the filter lists")
+            return
+        
+        box.label(text="Shows:")
+        flow = box.column_flow(columns=2, align=True)
+        for item in scene.cg_filter_shows:
+            flow.prop(item, "selected", text=f"{format_filter_name(item.name)} ({item.file_count})")
+        
+        box.label(text="Asset Types:")
+        flow = box.column_flow(columns=2, align=True)
+        for item in scene.cg_filter_file_types:
+            flow.prop(item, "selected", text=f"{format_filter_name(item.name)} ({item.file_count})")
 
 
 class CG_PT_BlendFilesPanel(Panel):

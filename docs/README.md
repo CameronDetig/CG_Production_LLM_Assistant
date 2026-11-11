@@ -12,6 +12,8 @@ Cross-cutting documentation for the whole repository lives here. Component-speci
 ## Index
 
 - [testing.md](testing.md): where each component's tests live, how to run them, and which ones run in CI.
+- [api.md](api.md): the HTTP API used by the web frontend and the Blender add-on: endpoints, authentication, search filters, and the chat event stream.
+- [openapi.json](openapi.json): generated OpenAPI schema for the same API. Regenerate it with `python backend/scripts/export_openapi.py`; do not edit it by hand.
 - [ci-cd.md](ci-cd.md): GitHub Actions workflows, the two-stage backend release, AWS roles, and constraints to keep in mind when changing them.
 
 ## Conventions

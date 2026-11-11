@@ -48,6 +48,7 @@ class CG_OT_Login(Operator):
                     
                     # Load conversations
                     bpy.ops.cg_assistant.refresh_conversations()
+                    bpy.ops.cg_assistant.refresh_filters('INVOKE_DEFAULT')
                 else:
                     error_msg = result.error if hasattr(result, 'error') else str(result)
                     props.auth_status = f"Login failed: {error_msg}"
@@ -109,6 +110,7 @@ class CG_OT_DemoLogin(Operator):
                     
                     # Load conversations
                     bpy.ops.cg_assistant.refresh_conversations()
+                    bpy.ops.cg_assistant.refresh_filters('INVOKE_DEFAULT')
                 else:
                     error_msg = result.error if hasattr(result, 'error') else str(result)
                     props.auth_status = f"Demo login failed: {error_msg}"
@@ -163,6 +165,11 @@ class CG_OT_Logout(Operator):
         
         # Clear chat history
         context.scene.cg_chat_history.clear()
+        
+        # Clear search filters
+        context.scene.cg_filter_shows.clear()
+        context.scene.cg_filter_file_types.clear()
+        props.filters_status = ""
         
         # Reset API client
         reset_api_client()
@@ -384,6 +391,111 @@ class CG_OT_DeleteConversation(Operator):
 # Chat Operators
 # ============================================================================
 
+def selected_filters(scene):
+    """Checked show and file type names, in the shape the chat API expects."""
+    return {
+        'shows': [item.name for item in scene.cg_filter_shows if item.selected],
+        'file_types': [item.name for item in scene.cg_filter_file_types if item.selected],
+    }
+
+
+def _replace_filter_items(collection, options):
+    """Rebuild a filter list from the server, keeping what the user had checked."""
+    previously_selected = {item.name for item in collection if item.selected}
+    collection.clear()
+    for option in options:
+        item = collection.add()
+        item.name = option.get('name', '')
+        item.file_count = option.get('file_count', 0)
+        item.selected = item.name in previously_selected
+
+
+class CG_OT_RefreshFilters(Operator):
+    """Reload the shows and asset types the search can be limited to"""
+    bl_idname = "cg_assistant.refresh_filters"
+    bl_label = "Refresh Filters"
+    bl_description = "Reload the list of shows and asset types from the server"
+    
+    _timer = None
+    _queue = None
+    
+    def modal(self, context, event):
+        if event.type == 'TIMER':
+            try:
+                result = self._queue.get_nowait()
+            except queue.Empty:
+                return {'PASS_THROUGH'}
+            
+            props = context.scene.cg_assistant
+            if getattr(result, 'success', False):
+                _replace_filter_items(context.scene.cg_filter_shows, result.data.get('shows', []))
+                _replace_filter_items(context.scene.cg_filter_file_types, result.data.get('file_types', []))
+                props.filters_status = ""
+            else:
+                props.filters_status = f"Could not load filters: {getattr(result, 'error', result)}"
+            
+            self.cancel(context)
+            # Redraw the sidebar so the new checkboxes appear without a mouse move
+            for area in context.screen.areas if context.screen else []:
+                if area.type == 'VIEW_3D':
+                    area.tag_redraw()
+            return {'FINISHED'}
+        
+        return {'PASS_THROUGH'}
+    
+    def execute(self, context):
+        return self.invoke(context, None)
+    
+    def invoke(self, context, event):
+        props = context.scene.cg_assistant
+        
+        if not props.is_authenticated:
+            self.report({'WARNING'}, "Please log in first")
+            return {'CANCELLED'}
+        
+        props.filters_status = "Loading filters..."
+        
+        # Uses its own queue and thread instead of the shared async client: this runs
+        # alongside the conversation refresh after login, and two requests sharing one
+        # response queue would hand each operator the other's result.
+        client = get_api_client(context).client
+        self._queue = queue.Queue()
+        result_queue = self._queue
+        
+        def fetch():
+            try:
+                result_queue.put(client.get_filters())
+            except Exception as error:
+                result_queue.put(str(error))
+        
+        threading.Thread(target=fetch, daemon=True).start()
+        
+        wm = context.window_manager
+        self._timer = wm.event_timer_add(0.1, window=context.window)
+        wm.modal_handler_add(self)
+        
+        return {'RUNNING_MODAL'}
+    
+    def cancel(self, context):
+        if self._timer:
+            context.window_manager.event_timer_remove(self._timer)
+            self._timer = None
+
+
+class CG_OT_ClearFilters(Operator):
+    """Untick every show and asset type so the search covers everything"""
+    bl_idname = "cg_assistant.clear_filters"
+    bl_label = "Clear Filters"
+    bl_description = "Search all shows and asset types"
+    
+    def execute(self, context):
+        for item in context.scene.cg_filter_shows:
+            item.selected = False
+        for item in context.scene.cg_filter_file_types:
+            item.selected = False
+        return {'FINISHED'}
+
+
 class CG_OT_SendMessage(Operator):
     """Send a message to the assistant"""
     bl_idname = "cg_assistant.send_message"
@@ -477,7 +589,8 @@ class CG_OT_SendMessage(Operator):
         self._client.chat_stream_async(
             query=props.message_input or "Find similar images to the uploaded image",
             conversation_id=props.current_conversation_id if props.current_conversation_id else None,
-            image_base64=image_base64
+            image_base64=image_base64,
+            filters=selected_filters(context.scene)
         )
         
         # Clear input
@@ -725,6 +838,8 @@ classes = [
     CG_OT_LoadConversation,
     CG_OT_NewConversation,
     CG_OT_DeleteConversation,
+    CG_OT_RefreshFilters,
+    CG_OT_ClearFilters,
     CG_OT_SendMessage,
     CG_OT_UploadImage,
     CG_OT_CaptureViewport,

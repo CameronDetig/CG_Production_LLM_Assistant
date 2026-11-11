@@ -7,11 +7,11 @@ lets the agent and service modules remain usable from diagnostics and tests.
 import asyncio
 import logging
 import os
-from typing import Any, AsyncGenerator, Dict, Optional
+from typing import Annotated, Any, AsyncGenerator, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 from src.auth.cognito import authenticate_user, extract_user_from_token, signup_user
 from src.services.conversations import (
@@ -33,11 +33,19 @@ def run_chat_agent_request(
     query: str,
     conversation_history: list,
     uploaded_image_base64: Optional[str],
+    filters: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     """Load the heavyweight agent stack only for an actual chat request."""
     from src.core.chat_agent import run_chat_agent
 
-    return run_chat_agent(query, conversation_history, uploaded_image_base64, 2)
+    return run_chat_agent(query, conversation_history, uploaded_image_base64, 2, filters)
+
+
+def filter_options_request() -> Dict[str, Any]:
+    """Defer the database driver import until filter options are actually requested."""
+    from src.services.database import get_filter_options
+
+    return get_filter_options()
 
 
 def stream_final_answer_request(query: str, candidate: str):
@@ -52,10 +60,39 @@ def stream_final_answer_request(query: str, candidate: str):
     )
 
 
+FilterValue = Annotated[str, StringConstraints(min_length=1, max_length=255)]
+
+
+class SearchFilters(BaseModel):
+    """Restrict a search. An empty list means no restriction for that dimension."""
+
+    shows: List[FilterValue] = Field(
+        default_factory=list,
+        max_length=100,
+        description="Show names (files.show) to search in, as listed by GET /api/filters.",
+    )
+    file_types: List[FilterValue] = Field(
+        default_factory=list,
+        max_length=100,
+        description="File types (files.file_type) to search in, such as image, video or blend.",
+    )
+
+
 class ChatRequest(BaseModel):
     query: str = Field(min_length=1, max_length=20_000)
     conversation_id: Optional[str] = None
     uploaded_image_base64: Optional[str] = Field(default=None, max_length=2_000_000)
+    filters: Optional[SearchFilters] = None
+
+
+class FilterOption(BaseModel):
+    name: str
+    file_count: int
+
+
+class FilterOptions(BaseModel):
+    shows: List[FilterOption]
+    file_types: List[FilterOption]
 
 
 class CredentialsRequest(BaseModel):
@@ -99,8 +136,13 @@ async def chat_events(
         title = generate_title_from_query(payload.query)
         conversation_id = await asyncio.to_thread(create_conversation, user_id, title)
 
+    filters = payload.filters.model_dump() if payload.filters else None
+    filters_active = bool(filters and (filters["shows"] or filters["file_types"]))
+
     await asyncio.to_thread(add_message, conversation_id, user_id, "user", payload.query)
     yield sse("agent_start", {"conversation_id": conversation_id, "attempts": 0})
+    if filters_active:
+        yield sse("filters", filters)
     yield sse("status", {"stage": "analyzing", "message": "Analyzing your request"})
 
     task = asyncio.create_task(
@@ -109,6 +151,7 @@ async def chat_events(
             payload.query,
             history,
             payload.uploaded_image_base64,
+            filters,
         )
     )
     try:
@@ -179,6 +222,7 @@ async def chat_events(
                     "sql_query": result.get("sql_query"),
                     "result_count": len(result.get("query_results", [])),
                     "results": dynamo_safe(result.get("query_results", [])[:10]),
+                    **({"filters": filters} if filters_active else {}),
                 }
             ],
         )
@@ -209,6 +253,12 @@ async def warmup(user_id: str = Depends(authenticated_user)) -> Dict[str, Any]:
     from src.services.warmup import warm_up
 
     return await asyncio.to_thread(warm_up)
+
+
+@app.get("/api/filters", response_model=FilterOptions)
+async def filter_options(user_id: str = Depends(authenticated_user)) -> Dict[str, Any]:
+    """Shows and file types a chat request can be restricted to, with file counts."""
+    return await asyncio.to_thread(filter_options_request)
 
 
 @app.post("/api/chat")

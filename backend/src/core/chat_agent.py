@@ -16,6 +16,7 @@ from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, System
 # Import services
 from src.services.database import execute_generated_sql
 from src.services.bedrock_client import invoke_bedrock
+from src.services.search_filters import describe_filters, normalize_filters
 from src.services.embeddings import (
     generate_text_embedding,
     generate_image_embedding_from_text,
@@ -46,6 +47,7 @@ class ChatAgentState(TypedDict):
     user_query: str
     conversation_history: List[Dict[str, str]]
     uploaded_image_base64: Optional[str]
+    search_filters: Dict[str, List[str]]  # Show / file type restriction chosen in the UI
     
     # New fields for SQL generation
     enhanced_query: Optional[str]
@@ -148,6 +150,8 @@ Database schema:
 
 The chat history is as follows:
 {context}
+
+{describe_filters(state.get('search_filters'))}
 
 {"IMPORTANT: User uploaded an image! You MUST set needs_visual_embedding to TRUE and search_type to 'similarity' to perform visual similarity search." if state.get('uploaded_image_base64') else ""}
 
@@ -326,6 +330,8 @@ Current User Query: {state['enhanced_query']}
 Intent: {json.dumps(state.get('query_intent', {}), indent=2)}
 {feedback_context}
 
+{describe_filters(state.get('search_filters'))}
+
 Here is the semantic file that defines the database schema, verified queries, and custom instructions:
 {SEMANTIC_FILE_STR}
 
@@ -473,7 +479,9 @@ def result_evaluation_node(state: ChatAgentState) -> ChatAgentState:
         # check, not a prefix match) and executes it under a DB role that
         # only has SELECT granted - see database.execute_generated_sql.
         exec_start = time.time()
-        state['query_results'] = execute_generated_sql(state['sql_query'])
+        state['query_results'] = execute_generated_sql(
+            state['sql_query'], filters=state.get('search_filters')
+        )
         logger.info(f"Query executed in {time.time() - exec_start:.2f}s, returned {len(state['query_results'])} rows")
 
         # Update query history with results
@@ -581,6 +589,8 @@ IMPORTANT:
 - Do NOT mark 0 (zero) results as unsatisfactory for counting queries
 
 User's query: {state['enhanced_query']}
+
+{describe_filters(state.get('search_filters'))}
 
 Executed SQL Query:
 {state['sql_query']}
@@ -733,7 +743,8 @@ def run_chat_agent(
     query: str,
     conversation_history: List[Dict[str, str]] = None,
     uploaded_image_base64: str = None,
-    max_attempts: int = MAX_ATTEMPTS
+    max_attempts: int = MAX_ATTEMPTS,
+    filters: Optional[Dict[str, Any]] = None
 ) -> Dict[str, Any]:
     """
     Run the chat agent for a user query.
@@ -743,16 +754,21 @@ def run_chat_agent(
         conversation_history: Previous conversation messages
         uploaded_image_base64: Optional uploaded image for search
         max_attempts: Maximum SQL generation attempts
+        filters: Optional {"shows": [...], "file_types": [...]} restriction applied to
+            every generated query
         
     Returns:
         Dict with final_answer, query_results, and all SQL queries attempted
     """
+    search_filters = normalize_filters(filters)
+
     # Initialize state
     initial_state = ChatAgentState(
         messages=[HumanMessage(content=query)],
         user_query=query,
         conversation_history=conversation_history or [],
         uploaded_image_base64=uploaded_image_base64,
+        search_filters=search_filters,
         enhanced_query=None,
         query_intent=None,
         text_embedding=None,
@@ -784,5 +800,6 @@ def run_chat_agent(
         'enhanced_query': final_state.get('enhanced_query'),
         'all_sql_queries': final_state.get('sql_query_history', []),  # All queries attempted
         'thumbnails_to_display': final_state.get('thumbnails_to_display', []),  # Thumbnails for UI
-        'attempts': final_state.get('attempt_count', 0) + 1
+        'attempts': final_state.get('attempt_count', 0) + 1,
+        'filters': search_filters
     }
