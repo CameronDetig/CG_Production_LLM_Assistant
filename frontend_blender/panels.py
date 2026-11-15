@@ -95,6 +95,12 @@ class CG_PT_MainPanel(Panel):
             row = layout.row()
             row.alert = True
             row.label(text=props.loading_stage or "Loading...", icon='SORTTIME')
+        elif props.is_authenticated and props.backend_status:
+            # Warm-up progress after login: the server, its models and the database
+            row = layout.row()
+            ready = props.backend_status == "Ready"
+            row.alert = not ready
+            row.label(text=f"Assistant: {props.backend_status}", icon='CHECKMARK' if ready else 'SORTTIME')
 
 
 class CG_PT_AuthPanel(Panel):

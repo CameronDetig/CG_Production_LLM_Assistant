@@ -114,6 +114,67 @@
         }
       }
     },
+    "/api/warmup/stream": {
+      "post": {
+        "summary": "Warmup Stream",
+        "description": "Warm the container and wake the database, reporting progress as it happens.",
+        "operationId": "warmup_stream_api_warmup_stream_post",
+        "parameters": [
+          {
+            "name": "x-cognito-token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Cognito-Token"
+            }
+          },
+          {
+            "name": "authorization",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Authorization"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/filters": {
       "get": {
         "summary": "Filter Options",

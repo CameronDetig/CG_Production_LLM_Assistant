@@ -7,6 +7,7 @@ import bpy
 import os
 import tempfile
 import threading
+import time
 import queue
 import webbrowser
 import urllib.request
@@ -14,7 +15,16 @@ from bpy.props import StringProperty, BoolProperty
 from bpy.types import Operator
 
 from .api_client import get_api_client, reset_api_client, APIClient
-from .utils import image_to_base64, format_chat_response, format_progress, get_temp_image_path
+from .utils import (
+    image_to_base64, format_chat_response, format_progress, get_temp_image_path,
+    waiting_for_warmup_text, warmup_status_text,
+)
+
+# True while a warm-up request is running. Kept here, not on the scene, so a .blend saved
+# mid-warm-up cannot reopen with the flag stuck on.
+_warmup_running = False
+# How long a question waits for warm-up before it is sent regardless.
+WARMUP_WAIT_LIMIT_SECONDS = 30
 
 
 # ============================================================================
@@ -49,6 +59,7 @@ class CG_OT_Login(Operator):
                     # Load conversations
                     bpy.ops.cg_assistant.refresh_conversations()
                     bpy.ops.cg_assistant.refresh_filters('INVOKE_DEFAULT')
+                    bpy.ops.cg_assistant.warm_up('INVOKE_DEFAULT')
                 else:
                     error_msg = result.error if hasattr(result, 'error') else str(result)
                     props.auth_status = f"Login failed: {error_msg}"
@@ -111,6 +122,7 @@ class CG_OT_DemoLogin(Operator):
                     # Load conversations
                     bpy.ops.cg_assistant.refresh_conversations()
                     bpy.ops.cg_assistant.refresh_filters('INVOKE_DEFAULT')
+                    bpy.ops.cg_assistant.warm_up('INVOKE_DEFAULT')
                 else:
                     error_msg = result.error if hasattr(result, 'error') else str(result)
                     props.auth_status = f"Demo login failed: {error_msg}"
@@ -170,6 +182,7 @@ class CG_OT_Logout(Operator):
         context.scene.cg_filter_shows.clear()
         context.scene.cg_filter_file_types.clear()
         props.filters_status = ""
+        props.backend_status = ""
         
         # Reset API client
         reset_api_client()
@@ -482,6 +495,89 @@ class CG_OT_RefreshFilters(Operator):
             self._timer = None
 
 
+class CG_OT_WarmUp(Operator):
+    """Start the assistant's server and wake its database ahead of the first question"""
+    bl_idname = "cg_assistant.warm_up"
+    bl_label = "Warm Up Assistant"
+    bl_description = "Start the assistant's server and wake its database so the first answer is faster"
+    
+    _timer = None
+    _queue = None
+    
+    def modal(self, context, event):
+        global _warmup_running
+        if event.type != 'TIMER':
+            return {'PASS_THROUGH'}
+        
+        props = context.scene.cg_assistant
+        finished = False
+        changed = False
+        while True:
+            try:
+                kind, payload = self._queue.get_nowait()
+            except queue.Empty:
+                break
+            changed = True
+            if kind == 'event':
+                name, data = payload
+                if name == 'status':
+                    props.backend_status = warmup_status_text(data.get('stage', ''), data.get('message', ''))
+            else:
+                finished = True
+                # Best effort: a failed warm-up only means the first answer is slower.
+                if not getattr(payload, 'success', False):
+                    props.backend_status = ""
+        
+        if changed:
+            for area in context.screen.areas if context.screen else []:
+                if area.type == 'VIEW_3D':
+                    area.tag_redraw()
+        if finished:
+            _warmup_running = False
+            self.cancel(context)
+            return {'FINISHED'}
+        return {'PASS_THROUGH'}
+    
+    def execute(self, context):
+        return self.invoke(context, None)
+    
+    def invoke(self, context, event):
+        global _warmup_running
+        props = context.scene.cg_assistant
+        
+        if not props.is_authenticated or _warmup_running:
+            return {'CANCELLED'}
+        
+        _warmup_running = True
+        props.backend_status = "Starting the server"
+        
+        # Own queue and thread, like the filter refresh: this runs alongside other requests
+        # after login and must not share the async client's single response queue.
+        client = get_api_client(context).client
+        self._queue = queue.Queue()
+        result_queue = self._queue
+        
+        def warm():
+            try:
+                result = client.warmup_stream(
+                    on_event=lambda name, data: result_queue.put(('event', (name, data))))
+            except Exception as error:
+                result = str(error)
+            result_queue.put(('done', result))
+        
+        threading.Thread(target=warm, daemon=True).start()
+        
+        wm = context.window_manager
+        self._timer = wm.event_timer_add(0.2, window=context.window)
+        wm.modal_handler_add(self)
+        return {'RUNNING_MODAL'}
+    
+    def cancel(self, context):
+        if self._timer:
+            context.window_manager.event_timer_remove(self._timer)
+            self._timer = None
+
+
 class CG_OT_ClearFilters(Operator):
     """Untick every show and asset type so the search covers everything"""
     bl_idname = "cg_assistant.clear_filters"
@@ -509,6 +605,13 @@ class CG_OT_SendMessage(Operator):
     _accumulated_text = ""
     _events = None
     _progress = None
+    # Request held back while the assistant warms up, and when to stop waiting for it.
+    _pending_request = None
+    _send_deadline = 0.0
+
+    def _start_request(self):
+        self._client.chat_stream_async(**self._pending_request)
+        self._pending_request = None
 
     def _show_progress(self, context):
         """Apply events the request thread has queued; bpy data is only touched here."""
@@ -533,6 +636,24 @@ class CG_OT_SendMessage(Operator):
     def modal(self, context, event):
         if event.type == 'TIMER':
             props = context.scene.cg_assistant
+            
+            if self._pending_request is not None:
+                # Each backend instance serves one request at a time, so a question sent
+                # during warm-up would start a second, cold one. Hold it and say why.
+                if _warmup_running and time.monotonic() < self._send_deadline:
+                    waiting = waiting_for_warmup_text(props.backend_status)
+                    if len(context.scene.cg_chat_history) > 0 and context.scene.cg_chat_history[-1].content != waiting:
+                        context.scene.cg_chat_history[-1].content = waiting
+                        for area in context.screen.areas if context.screen else []:
+                            if area.type == 'VIEW_3D':
+                                area.tag_redraw()
+                    return {'PASS_THROUGH'}
+                if len(context.scene.cg_chat_history) > 0:
+                    context.scene.cg_chat_history[-1].content = "Thinking..."
+                props.loading_stage = ""
+                self._start_request()
+                return {'PASS_THROUGH'}
+            
             self._show_progress(context)
             
             # Check for response
@@ -614,13 +735,20 @@ class CG_OT_SendMessage(Operator):
         self._events = queue.Queue()
         self._progress = []
         self._client = get_api_client(context)
-        self._client.chat_stream_async(
+        self._pending_request = dict(
             query=props.message_input or "Find similar images to the uploaded image",
             conversation_id=props.current_conversation_id if props.current_conversation_id else None,
             image_base64=image_base64,
             filters=selected_filters(context.scene),
             on_event=lambda event, data: self._events.put((event, data))
         )
+        if _warmup_running:
+            # Sent by the modal timer once warm-up finishes; the chat says so meanwhile.
+            self._send_deadline = time.monotonic() + WARMUP_WAIT_LIMIT_SECONDS
+            assistant_msg.content = waiting_for_warmup_text(props.backend_status)
+            props.loading_stage = "Waiting for the assistant to start"
+        else:
+            self._start_request()
         
         # Clear input
         props.message_input = ""
@@ -868,6 +996,7 @@ classes = [
     CG_OT_NewConversation,
     CG_OT_DeleteConversation,
     CG_OT_RefreshFilters,
+    CG_OT_WarmUp,
     CG_OT_ClearFilters,
     CG_OT_SendMessage,
     CG_OT_UploadImage,

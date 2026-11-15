@@ -144,6 +144,22 @@ def release_readonly_connection(conn):
         readonly_connection_pool.putconn(conn)
 
 
+def ensure_awake() -> float:
+    """
+    Make sure the database is accepting queries, waking it if it had paused.
+
+    Borrowing a connection is enough: the liveness probe in _checkout is the first statement
+    a paused database sees, and it blocks until the resume has finished.
+
+    Returns:
+        Seconds the check took (a fraction of a second when awake, about 15 after a pause).
+    """
+    started = time.time()
+    conn = get_readonly_connection()
+    release_readonly_connection(conn)
+    return time.time() - started
+
+
 def validate_select_only_sql(sql: str) -> str:
     """
     Validate that a SQL string is exactly one read-only SELECT statement.

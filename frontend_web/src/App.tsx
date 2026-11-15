@@ -29,6 +29,13 @@ import {
 import { FilterChips, FilterMenu } from "./Filters";
 import { Thinking } from "./Thinking";
 import { countFilters, describeFilters, loadStoredFilters, pruneFilters, storeFilters } from "./searchFilters";
+import {
+  STARTING_MESSAGE,
+  WARMUP_WAIT_LIMIT_MS,
+  needsRewarm,
+  waitingForWarmupStage,
+  warmupProgress,
+} from "./warmup";
 import type {
   ConversationSummary,
   DetailBlock,
@@ -128,7 +135,13 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const endRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const warmedUpRef = useRef(false);
+  // Warm-up progress for the status line; null when the backend is not warming up.
+  const [warmStatus, setWarmStatus] = useState<string | null>(null);
+  const warmupRef = useRef<Promise<void> | null>(null);
+  const warmStatusRef = useRef<string | null>(null);
+  // True while a submitted question is held back until warm-up finishes.
+  const waitingForWarmupRef = useRef(false);
+  const lastBackendActivityRef = useRef(0);
 
   const expireSession = useCallback(() => {
     sessionStorage.removeItem("cg-assistant.session");
@@ -162,11 +175,52 @@ export default function App() {
   }, []);
 
   useEffect(() => { if (config && session) void refreshConversations(config); }, [config, session, refreshConversations]);
+  /** Start warming the backend unless a warm-up is already running. */
+  const startWarmup = useCallback((): Promise<void> => {
+    if (!config) return Promise.resolve();
+    if (warmupRef.current) return warmupRef.current;
+    const show = (message: string | null) => {
+      warmStatusRef.current = message;
+      setWarmStatus(message);
+      // A question submitted during warm-up shows the same progress in the chat itself.
+      if (waitingForWarmupRef.current && message) {
+        setMessages((current) => current.map((item, index) => (
+          index === current.length - 1 ? { ...item, stage: waitingForWarmupStage(message) } : item
+        )));
+      }
+    };
+    show(STARTING_MESSAGE);
+    let problem: string | null = null;
+    const run = warmUpBackend(config, (event) => {
+      const progress = warmupProgress(event);
+      if (!progress) return;
+      if (progress.problem) problem = progress.message;
+      else show(progress.message);
+    }).finally(() => {
+      warmupRef.current = null;
+      lastBackendActivityRef.current = Date.now();
+      show(null);
+      if (problem) setStatus(problem);
+    });
+    warmupRef.current = run;
+    return run;
+  }, [config]);
+
   useEffect(() => {
-    if (!config || !session || warmedUpRef.current) return;
-    warmedUpRef.current = true;
-    void warmUpBackend(config);
-  }, [config, session]);
+    if (config && session) void startWarmup();
+  }, [config, session, startWarmup]);
+
+  /** Wake the backend again when the user comes back after the database has likely paused. */
+  const rewarmIfIdle = useCallback(() => {
+    if (!config || !session || busy) return;
+    if (needsRewarm(lastBackendActivityRef.current, Date.now())) void startWarmup();
+  }, [config, session, busy, startWarmup]);
+
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible") rewarmIfIdle(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [rewarmIfIdle]);
   useEffect(() => {
     if (!config || !session) return;
     void (async () => {
@@ -284,6 +338,19 @@ export default function App() {
     const controller = new AbortController();
     abortRef.current = controller;
     try {
+      // Each backend instance serves one request at a time, so a question sent during
+      // warm-up would start a second, cold one. Hold it until warm-up finishes, and say so.
+      if (warmupRef.current) {
+        waitingForWarmupRef.current = true;
+        updateAssistant((message) => ({ ...message, stage: waitingForWarmupStage(warmStatusRef.current) }));
+        await Promise.race([
+          warmupRef.current,
+          new Promise((resolve) => setTimeout(resolve, WARMUP_WAIT_LIMIT_MS)),
+        ]);
+        waitingForWarmupRef.current = false;
+        if (controller.signal.aborted) return;
+        updateAssistant((message) => ({ ...message, stage: undefined }));
+      }
       await streamChat(config, {
         query,
         ...(conversationId ? { conversation_id: conversationId } : {}),
@@ -297,6 +364,8 @@ export default function App() {
       else updateAssistant((message) => ({ ...message, content: reason instanceof Error ? reason.message : "Request failed", pending: false, error: true }));
       setStatus("Error");
     } finally {
+      waitingForWarmupRef.current = false;
+      lastBackendActivityRef.current = Date.now();
       setBusy(false);
       abortRef.current = null;
     }
@@ -362,7 +431,7 @@ export default function App() {
       <main className="workspace">
         <header className="topbar">
           <button className="icon-button mobile-only" onClick={() => setSidebarOpen(true)} aria-label="Open navigation"><Menu /></button>
-          <div><span className={`status-dot ${busy ? "working" : ""}`} />{status}</div>
+          <div><span className={`status-dot ${busy || warmStatus ? "working" : ""}`} />{warmStatus ?? status}</div>
           <span className="collection-label">Blender Studio archive</span>
         </header>
         <section className="chat-scroll" aria-live="polite">
@@ -388,7 +457,7 @@ export default function App() {
             <FilterMenu options={filterOptions} value={filters} onChange={setFilters} disabled={busy} />
             <textarea value={text} onChange={(event) => setText(event.target.value)} onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void send(); }
-            }} placeholder="Ask about production assets…" rows={1} disabled={busy} aria-label="Message" />
+            }} onFocus={rewarmIfIdle} placeholder="Ask about production assets…" rows={1} disabled={busy} aria-label="Message" />
             <button className="send-button" onClick={() => void send()} disabled={busy || (!text.trim() && !image)} aria-label="Send message"><Send size={18} /></button>
           </div>
           <p className="composer-note">Responses can include generated SQL. Verify important production decisions.</p>

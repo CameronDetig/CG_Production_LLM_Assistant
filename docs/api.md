@@ -14,6 +14,7 @@ OpenAPI cannot describe the event stream that `/api/chat` returns, so that part 
 | POST | `/api/auth` | No | Exchange an email and password for Cognito tokens |
 | POST | `/api/signup` | No | Create an account |
 | POST | `/api/warmup` | Yes | Pre-load models and database pools |
+| POST | `/api/warmup/stream` | Yes | The same warm-up, plus a database wake on every call, reporting progress as a Server-Sent Events stream |
 | GET | `/api/filters` | Yes | List the shows and file types a search can be limited to |
 | POST | `/api/chat` | Yes | Ask a question; returns a Server-Sent Events stream |
 | GET | `/api/conversations` | Yes | List the caller's conversations |
@@ -76,6 +77,37 @@ No body. Loads the agent stack, the text embedding model and the database pools 
 ```
 
 On the first call in a container the response also has a `steps` object with each step's duration or `"failed"`, and `status` is `"partial"` if any step failed.
+
+This route does nothing once its container is warm, so it does not wake a database that paused afterwards. Clients that show progress or want the database awake should use the stream below.
+
+## POST /api/warmup/stream
+
+No body. Loads the models once per container and, on every call, waits for the metadata database to answer. The database pauses after five idle minutes and takes about 15 seconds to resume, so both clients call this after sign-in and again when the user returns after a quiet period, instead of leaving that wait to the first question.
+
+The response is a Server-Sent Events stream of `status` events with the same `stage` and `message` fields the chat stream uses. Show `message` to people.
+
+| `stage` | `message` | Meaning |
+|---|---|---|
+| `server_ready` | Server is up | The backend is running. Until this arrives a client can assume it is still starting. |
+| `warming` | Waking the database and loading models, Waking the database, or Loading models | What is still in progress. Sent again each time one part finishes. |
+| `ready` | Ready | Everything answered. `steps` has the time each part took, or `"warm"` for models already loaded. |
+| `partial` | The database is not responding yet, or The assistant is not fully loaded yet | Something failed. It is retried on the next call; chat requests can still be sent. |
+
+```text
+event: status
+data: {"stage": "server_ready", "message": "Server is up"}
+
+event: status
+data: {"stage": "warming", "message": "Waking the database and loading models"}
+
+event: status
+data: {"stage": "warming", "message": "Waking the database"}
+
+event: status
+data: {"stage": "ready", "message": "Ready", "steps": {"models": "4210ms", "database": "14870ms"}}
+```
+
+Warm-up is best effort: clients should ignore failures. Each backend instance serves one request at a time, so a chat request sent while this stream is open starts a second, cold instance. Both clients hold a question submitted during warm-up until the stream ends (for at most 30 seconds) and tell the user the assistant is still starting up.
 
 ## GET /api/filters
 
@@ -165,6 +197,7 @@ Events, in the order they are sent:
 
 | `stage` | `message` |
 |---|---|
+| `waking_database` | Waking the database (about 15 seconds). Only sent when the database had paused and the request has to wait for it to resume. |
 | `analyzing` | Analyzing your request |
 | `embedding` | Preparing similarity search, or Encoding your uploaded image (only for similarity and image searches) |
 | `generating_sql` | Writing a database query, or Revising the database query (attempt N) |

@@ -11,6 +11,7 @@ import importlib
 import json
 import os
 import sys
+import time
 import unittest
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -65,6 +66,7 @@ class ApiAppTestCase(unittest.TestCase):
                 'add_message', 'list_conversations', 'delete_conversation',
                 'generate_title_from_query', 'run_chat_agent_request',
                 'stream_final_answer_request', 'filter_options_request',
+                'ensure_database_awake_request', 'warm_up_events_request',
             )
         }
         self.mocks = {name: p.start() for name, p in self.patches.items()}
@@ -246,6 +248,59 @@ class ChatStreamTest(ApiAppTestCase):
     def test_chat_requires_auth_and_valid_body(self):
         self.assertEqual(client.post('/api/chat', json={'query': 'q'}).status_code, 401)
         self.assertEqual(client.post('/api/chat', json={'query': ''}, headers=AUTH).status_code, 422)
+
+    def test_awake_database_adds_no_status(self):
+        events = self.chat({'query': 'q'})
+        stages = [data.get('stage') for name, data in events if name == 'status']
+        self.assertNotIn('waking_database', stages)
+        self.mocks['ensure_database_awake_request'].assert_called_once_with()
+
+    def test_slow_database_is_announced_before_the_agent_starts(self):
+        def resume():
+            time.sleep(0.2)
+            return 0.2
+
+        self.mocks['ensure_database_awake_request'].side_effect = resume
+        with patch.object(api_app, 'DATABASE_WAKE_NOTICE_SECONDS', 0.01):
+            events = self.chat({'query': 'q'})
+        stages = [data.get('stage') for name, data in events if name == 'status']
+        self.assertEqual(stages[:2], ['waking_database', 'analyzing'])
+        self.assertIn('database', events[1][1]['message'])
+
+    def test_failed_wake_check_does_not_fail_the_chat(self):
+        self.mocks['ensure_database_awake_request'].side_effect = RuntimeError('no route')
+        events = self.chat({'query': 'q'})
+        self.assertEqual(events[-1][0], 'done')
+        self.assertNotIn('error', [name for name, _ in events])
+
+
+class WarmupStreamTest(ApiAppTestCase):
+    def test_progress_is_relayed_as_status_events(self):
+        self.mocks['warm_up_events_request'].return_value = iter([
+            {'stage': 'server_ready', 'message': 'Server is up'},
+            {'stage': 'warming', 'message': 'Waking the database'},
+            {'stage': 'ready', 'message': 'Ready', 'steps': {'database': '14800ms', 'models': 'warm'}},
+        ])
+        response = client.post('/api/warmup/stream', headers=AUTH)
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.headers['content-type'].startswith('text/event-stream'))
+        events = parse_sse(response.text)
+        self.assertEqual([name for name, _ in events], ['status', 'status', 'status'])
+        self.assertEqual([data['stage'] for _, data in events], ['server_ready', 'warming', 'ready'])
+
+    def test_a_crash_is_reported_as_partial_not_as_an_http_error(self):
+        def broken():
+            yield {'stage': 'server_ready', 'message': 'Server is up'}
+            raise RuntimeError('model download failed')
+
+        self.mocks['warm_up_events_request'].return_value = broken()
+        response = client.post('/api/warmup/stream', headers=AUTH)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual([data['stage'] for _, data in parse_sse(response.text)], ['server_ready', 'partial'])
+
+    def test_requires_auth(self):
+        self.assertEqual(client.post('/api/warmup/stream').status_code, 401)
+        self.mocks['warm_up_events_request'].assert_not_called()
 
 
 if __name__ == '__main__':

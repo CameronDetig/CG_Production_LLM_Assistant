@@ -33,10 +33,31 @@ export async function listConversations(config: RuntimeConfig): Promise<Conversa
   return ((await response.json()) as { conversations: ConversationSummary[] }).conversations;
 }
 
-/** Ask the backend to pre-load its models and database pools. Best effort: never throws. */
-export async function warmUpBackend(config: RuntimeConfig): Promise<void> {
+/** Deliver each server-sent event in a streamed response as it arrives. */
+async function readEventStream(response: Response, onEvent: (message: SSEMessage) => void): Promise<void> {
+  if (!response.body) return;
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const parser = new SSEParser();
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    parser.push(decoder.decode(value, { stream: true })).forEach(onEvent);
+  }
+  parser.push(decoder.decode()).concat(parser.finish()).forEach(onEvent);
+}
+
+/**
+ * Ask the backend to load its models and wake the database, reporting progress as `status`
+ * events. Resolves when warm-up has finished. Best effort: never throws.
+ */
+export async function warmUpBackend(
+  config: RuntimeConfig,
+  onEvent: (message: SSEMessage) => void = () => {},
+): Promise<void> {
   try {
-    await authenticatedFetch(config, "/api/warmup", { method: "POST" });
+    const response = await authenticatedFetch(config, "/api/warmup/stream", { method: "POST" });
+    if (response.ok) await readEventStream(response, onEvent);
   } catch {
     // Warmup only improves first-question latency; failures must not affect the session.
   }
@@ -72,15 +93,7 @@ export async function streamChat(
   const body = JSON.stringify(payload);
   const response = await authenticatedFetch(config, "/api/chat", { method: "POST", body, signal });
   if (!response.ok || !response.body) throw new Error(`Chat request failed (${response.status})`);
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  const parser = new SSEParser();
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    parser.push(decoder.decode(value, { stream: true })).forEach(onEvent);
-  }
-  parser.push(decoder.decode()).concat(parser.finish()).forEach(onEvent);
+  await readEventStream(response, onEvent);
 }
 
 export async function imageToBase64(file: File): Promise<{ data: string; preview: string }> {

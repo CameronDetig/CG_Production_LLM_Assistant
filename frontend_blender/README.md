@@ -165,6 +165,8 @@ When query results include .blend files:
 ### Chat not updating
 
 - Check if the "Loading..." indicator is visible
+- After login the panel shows "Assistant: Starting the server", "Waking the database" and similar while the backend warms up, then "Assistant: Ready". A question sent before it is ready is held until warm-up finishes (at most 30 seconds), and the chat says so
+- A reply that starts with "Waking the database" means the database had paused; expect about 15 extra seconds
 - Blender's UI may need a manual refresh (move your mouse over the panel)
 - Long queries may take up to 2 minutes for Lambda cold starts
 
