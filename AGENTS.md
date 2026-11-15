@@ -25,7 +25,7 @@ Use four spaces, `snake_case` functions/modules, `PascalCase` classes, and upper
 
 ## Testing Guidelines
 
-No enforced coverage threshold exists. Put tests in the top-level `tests/` folder under the component they cover, not next to the source. Add focused `test_*.py` regressions under `tests/backend/`, mocking external services for isolated checks; scripts that need live services go in `tests/backend/integration/`. Frontend tests go in `tests/frontend_web/` (vitest), Blender client tests in `tests/frontend_blender/`, and release-tooling tests in `tests/infra/`. Validate authentication, streamed responses, search results, and conversation behavior when affected. Manually verify UI changes in the web frontend or Blender and include screenshots. Report unavailable service/model prerequisites and skipped checks.
+No enforced coverage threshold exists. Put tests in the top-level `tests/` folder under the component they cover, not next to the source. Add focused `test_*.py` regressions under `tests/backend/`, mocking external services for isolated checks; scripts that need live services go in `tests/backend/integration/`. Frontend tests go in `tests/frontend_web/` (vitest), Blender client tests in `tests/frontend_blender/`, and release-tooling tests in `tests/infra/`. Validate authentication, streamed responses, search results, and conversation behavior when affected. Manually verify UI changes in the web frontend or Blender. Report unavailable service/model prerequisites and skipped checks.
 
 ## Documentation
 
