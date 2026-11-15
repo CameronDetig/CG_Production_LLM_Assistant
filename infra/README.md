@@ -68,6 +68,18 @@ For rollback, dispatch the plan workflow with a retained `sha256:...` image dige
 
 The old direct deployment scripts are disabled to prevent competing ownership.
 
+### Removing a resource
+
+Releases reject any plan that deletes or replaces a resource. To retire one, replace its `resource` block with a `removed` block using `lifecycle { destroy = false }`. The plan then shows a `forget` action, which releases allow. After that release is applied, Terraform no longer manages the resource, and you delete it by hand with an administrator account. Do it in this order: if the resource is deleted first, the next plan tries to recreate it. Keep the `removed` blocks afterwards as history, like the import blocks.
+
+The retired API Gateway HTTP API was removed this way (`removed` blocks in `frontend.tf`). After its release was applied, the manual cleanup was:
+
+```sh
+api_id=$(aws apigatewayv2 get-apis --region us-east-1 --query "Items[?Name=='cg-assistant-frontend-api'].ApiId" --output text)
+aws apigatewayv2 delete-api --api-id "$api_id" --region us-east-1   # also deletes its stage, routes, integration and authorizer
+aws lambda remove-permission --function-name cg-production-chatbot --statement-id AllowApiGatewayInvoke --region us-east-1
+```
+
 ## Web frontend release order
 
 1. Apply the reviewed `infra/bootstrap` update so CI can inspect and create the new resource types.

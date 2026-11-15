@@ -27,6 +27,13 @@ class ReleaseSafetyTests(unittest.TestCase):
         with self.assertRaises(CommandError):
             has_shared_contract()
 
+    def test_forgetting_a_resource_is_allowed(self):
+        # A `removed` block with destroy = false stops managing a resource without deleting it.
+        changes = plan_changes({'resource_changes': [
+            {'address': 'aws_apigatewayv2_api.frontend', 'change': {'actions': ['forget'], 'before': {}, 'after': None}},
+        ]})
+        self.assertEqual(changes, [{'address': 'aws_apigatewayv2_api.frontend', 'actions': ['forget']}])
+
     def test_destructive_change_rejected(self):
         for actions in [['delete'], ['delete', 'create'], ['create', 'delete']]:
             with self.assertRaises(ValueError):
