@@ -205,6 +205,52 @@ class APIClient:
         """
         return self._make_request('GET', '/api/filters')
     
+    def warmup_stream(
+        self,
+        on_event: Optional[Callable[[str, Dict[str, Any]], None]] = None
+    ) -> APIResponse:
+        """
+        Ask the backend to load its models and wake the database.
+
+        The database pauses when idle and takes about 15 seconds to resume, so this is
+        called after login instead of leaving that wait to the first question.
+
+        Args:
+            on_event: Callback receiving (event, data) for each `status` progress event as
+                it arrives. Called from the request thread.
+
+        Returns:
+            APIResponse whose data holds the events received
+        """
+        body = b''
+        req = urllib.request.Request(
+            f"{self.base_url}/api/warmup/stream",
+            data=body,
+            headers=self._base_headers(body),
+            method='POST'
+        )
+        events = []
+        try:
+            with urllib.request.urlopen(req, timeout=self.timeout, context=self._ssl_context) as response:
+                current_event = None
+                for line in response:
+                    line = line.decode('utf-8').strip()
+                    if line.startswith('event:'):
+                        current_event = line.split(':', 1)[1].strip()
+                    elif line.startswith('data:'):
+                        try:
+                            data = json.loads(line.split(':', 1)[1].strip())
+                        except json.JSONDecodeError:
+                            continue
+                        events.append({'event': current_event, 'data': data})
+                        if on_event:
+                            on_event(current_event, data)
+                return APIResponse(success=True, data={'events': events}, status_code=200)
+        except urllib.error.HTTPError as e:
+            return APIResponse(success=False, error=f"HTTP Error {e.code}", status_code=e.code)
+        except Exception as e:
+            return APIResponse(success=False, error=str(e), status_code=0)
+
     def chat_stream(
         self,
         query: str,

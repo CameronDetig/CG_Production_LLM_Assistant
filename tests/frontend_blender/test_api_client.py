@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'frontend_blender'))
 
 from api_client import APIClient  # noqa: E402
-from utils import format_progress  # noqa: E402
+from utils import format_progress, waiting_for_warmup_text, warmup_status_text  # noqa: E402
 
 
 def fake_response(body, status=200):
@@ -195,6 +195,44 @@ class APIClientTest(unittest.TestCase):
         self.assertFalse(result.success)
         self.assertEqual(result.status_code, 0)
         self.assertIn('Connection error', result.error)
+
+
+class WarmupTest(unittest.TestCase):
+    def test_warmup_stream_posts_signed_empty_body_and_reports_each_status(self):
+        client = APIClient('https://example.test/', token='tok')
+        lines = [
+            'event: status', 'data: {"stage": "server_ready", "message": "Server is up"}', '',
+            ': heartbeat', '',
+            'event: status', 'data: {"stage": "warming", "message": "Waking the database"}', '',
+            'event: status', 'data: {"stage": "ready", "message": "Ready"}', '',
+        ]
+        seen = []
+        with patch('urllib.request.urlopen', return_value=fake_stream(lines)) as urlopen:
+            result = client.warmup_stream(on_event=lambda event, data: seen.append((event, data['stage'])))
+
+        request = urlopen.call_args.args[0]
+        self.assertEqual(request.full_url, 'https://example.test/api/warmup/stream')
+        self.assertEqual(request.get_method(), 'POST')
+        self.assertEqual(request.get_header('X-amz-content-sha256'), hashlib.sha256(b'').hexdigest())
+        self.assertTrue(result.success)
+        self.assertEqual(seen, [('status', 'server_ready'), ('status', 'warming'), ('status', 'ready')])
+
+    def test_warmup_failure_is_returned_not_raised(self):
+        client = APIClient('https://example.test/', token='tok')
+        with patch('urllib.request.urlopen', side_effect=OSError('offline')):
+            result = client.warmup_stream()
+        self.assertFalse(result.success)
+
+    def test_status_line_text(self):
+        self.assertEqual(warmup_status_text('warming', 'Waking the database'), 'Waking the database')
+        self.assertEqual(warmup_status_text('ready', 'Ready'), 'Ready')
+        self.assertEqual(warmup_status_text('warming', ''), 'Warming up')
+
+    def test_question_sent_during_warmup_says_so_in_the_chat(self):
+        text = waiting_for_warmup_text('Waking the database')
+        self.assertIn('still starting up (waking the database)', text)
+        self.assertIn('will be sent as soon as it is ready', text)
+        self.assertIn('starting the server', waiting_for_warmup_text(''))
 
 
 if __name__ == '__main__':

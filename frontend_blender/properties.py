@@ -194,6 +194,13 @@ class CG_SceneProperties(PropertyGroup):
         default=""
     )
     
+    backend_status: StringProperty(
+        name="Backend Status",
+        description="Whether the assistant's server and database are starting up or ready",
+        default="",
+        options={'SKIP_SAVE'}
+    )
+    
     current_response: StringProperty(
         name="Current Response",
         description="Streaming response accumulator",

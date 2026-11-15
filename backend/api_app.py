@@ -26,6 +26,8 @@ from src.services.conversations import (
 from src.services.streaming import dynamo_safe, final_answer_prompt, sse
 
 logger = logging.getLogger(__name__)
+# How long a chat waits on the database before telling the client it is being woken.
+DATABASE_WAKE_NOTICE_SECONDS = 1.5
 app = FastAPI(title="CG Production Assistant API", docs_url=None, redoc_url=None)
 
 
@@ -49,6 +51,20 @@ def filter_options_request() -> Dict[str, Any]:
     from src.services.database import get_filter_options
 
     return get_filter_options()
+
+
+def ensure_database_awake_request() -> float:
+    """Defer the database driver import until a request actually needs the database."""
+    from src.services.database import ensure_awake
+
+    return ensure_awake()
+
+
+def warm_up_events_request():
+    """Defer the warmup module (and what it loads) until a client asks for it."""
+    from src.services.warmup import warm_up_events
+
+    return warm_up_events()
 
 
 def stream_final_answer_request(query: str, candidate: str):
@@ -146,6 +162,28 @@ async def chat_events(
     yield sse("agent_start", {"conversation_id": conversation_id, "attempts": 0})
     if filters_active:
         yield sse("filters", filters)
+
+    # The database pauses when idle and takes about 15 seconds to resume. Say so instead of
+    # leaving the first step looking stuck; when it is awake this check takes milliseconds.
+    wake = asyncio.create_task(asyncio.to_thread(ensure_database_awake_request))
+    try:
+        done, _ = await asyncio.wait({wake}, timeout=DATABASE_WAKE_NOTICE_SECONDS)
+        if not done:
+            yield sse("status", {
+                "stage": "waking_database",
+                "message": "Waking the database (about 15 seconds)",
+            })
+            while not wake.done():
+                if await request.is_disconnected():
+                    return
+                done, _ = await asyncio.wait({wake}, timeout=12)
+                if not done:
+                    yield ": heartbeat\n\n"
+        wake.result()
+    except Exception:
+        # The agent reports database failures itself; this check only improves the wait.
+        logger.warning("Database wake check failed", exc_info=True)
+
     yield sse("status", {"stage": "analyzing", "message": "Analyzing your request"})
 
     # The agent runs in a worker thread and reports each step (interpreted request, SQL,
@@ -245,6 +283,49 @@ async def warmup(user_id: str = Depends(authenticated_user)) -> Dict[str, Any]:
     from src.services.warmup import warm_up
 
     return await asyncio.to_thread(warm_up)
+
+
+async def warmup_events(request: Request) -> AsyncGenerator[str, None]:
+    """Relay warmup progress as `status` events, with heartbeats while a step is slow."""
+    loop = asyncio.get_running_loop()
+    events: asyncio.Queue = asyncio.Queue()
+    finished = object()
+
+    def produce() -> None:
+        try:
+            for event in warm_up_events_request():
+                loop.call_soon_threadsafe(events.put_nowait, event)
+        except Exception:
+            logger.exception("Streamed warmup failed")
+            loop.call_soon_threadsafe(
+                events.put_nowait,
+                {"stage": "partial", "message": "The assistant is not fully loaded yet"},
+            )
+
+    task = asyncio.create_task(asyncio.to_thread(produce))
+    task.add_done_callback(lambda _: events.put_nowait(finished))
+    while True:
+        if await request.is_disconnected():
+            # The work carries on in its thread so the next request still benefits.
+            return
+        try:
+            item = await asyncio.wait_for(events.get(), timeout=12)
+        except asyncio.TimeoutError:
+            yield ": heartbeat\n\n"
+            continue
+        if item is finished:
+            return
+        yield sse("status", item)
+
+
+@app.post("/api/warmup/stream")
+async def warmup_stream(request: Request, user_id: str = Depends(authenticated_user)) -> StreamingResponse:
+    """Warm the container and wake the database, reporting progress as it happens."""
+    return StreamingResponse(
+        warmup_events(request),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no"},
+    )
 
 
 @app.get("/api/filters", response_model=FilterOptions)

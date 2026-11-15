@@ -11,14 +11,19 @@ response is returned, so a background thread would not reliably finish.
 
 import importlib
 import logging
+import queue
 import threading
 import time
-from typing import Callable, Dict, Union
+from typing import Callable, Dict, Iterator, Set, Union
 
 logger = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 _warm = False
+# Set by the streamed warmup once the model steps have run; the database is checked every time.
+_models_warm = False
+
+DATABASE_STEP = "database_pools"
 
 
 def _load_agent_stack() -> None:
@@ -73,3 +78,95 @@ def warm_up() -> Dict[str, Union[str, Dict[str, object]]]:
         _warm = all(value != "failed" for value in results.values())
         logger.info("Warmup finished: %s", results)
         return {"status": "warm" if _warm else "partial", "steps": results}
+
+
+def _ensure_database_awake() -> None:
+    from src.services import database
+
+    database.ensure_awake()
+
+
+def _warm_database() -> str:
+    """Open the pools if needed, then wait for the database to answer.
+
+    Unlike the model steps this runs on every call: the database pauses on its own while the
+    container stays warm, so a warm container says nothing about whether it is awake.
+    """
+    started = time.perf_counter()
+    open_pools = _STEPS.get(DATABASE_STEP)
+    if open_pools:
+        open_pools()
+    _ensure_database_awake()
+    return f"{(time.perf_counter() - started) * 1000:.0f}ms"
+
+
+def _warm_models() -> str:
+    """Run the model-loading steps once per container."""
+    global _models_warm
+    started = time.perf_counter()
+    with _lock:
+        if _warm or _models_warm:
+            return "warm"
+        for name, step in _STEPS.items():
+            if name != DATABASE_STEP:
+                step()
+        _models_warm = True
+    return f"{(time.perf_counter() - started) * 1000:.0f}ms"
+
+
+_GROUPS: Dict[str, Callable[[], str]] = {"database": _warm_database, "models": _warm_models}
+
+
+def _pending_message(pending: Set[str]) -> str:
+    if pending == {"database", "models"}:
+        return "Waking the database and loading models"
+    if pending == {"database"}:
+        return "Waking the database"
+    return "Loading models"
+
+
+def warm_up_events() -> Iterator[Dict[str, object]]:
+    """Warm the container and the database, yielding a status event at each change.
+
+    Events have the shape of the chat stream's `status` events ({"stage", "message"}) so
+    clients show them the same way:
+
+    - "server_ready": this container is running (a cold start is already over by now).
+    - "warming": the message names what is still in progress.
+    - "ready": everything answered; "steps" holds how long each part took.
+    - "partial": something failed. It is reported, never raised, and retried next call.
+
+    The database resume is network wait while model loading is CPU work, so the two run side
+    by side instead of one after the other.
+    """
+    yield {"stage": "server_ready", "message": "Server is up"}
+
+    finished: "queue.Queue[tuple]" = queue.Queue()
+
+    def run(group: str, work: Callable[[], str]) -> None:
+        try:
+            finished.put((group, work()))
+        except Exception:
+            logger.exception("Warmup of %s failed", group)
+            finished.put((group, "failed"))
+
+    for group, work in _GROUPS.items():
+        threading.Thread(target=run, args=(group, work), daemon=True).start()
+
+    pending = set(_GROUPS)
+    results: Dict[str, str] = {}
+    yield {"stage": "warming", "message": _pending_message(pending)}
+    while pending:
+        group, outcome = finished.get()
+        pending.discard(group)
+        results[group] = outcome
+        if pending:
+            yield {"stage": "warming", "message": _pending_message(pending)}
+
+    logger.info("Streamed warmup finished: %s", results)
+    if results["database"] == "failed":
+        yield {"stage": "partial", "message": "The database is not responding yet", "steps": results}
+    elif results["models"] == "failed":
+        yield {"stage": "partial", "message": "The assistant is not fully loaded yet", "steps": results}
+    else:
+        yield {"stage": "ready", "message": "Ready", "steps": results}

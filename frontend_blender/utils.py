@@ -82,6 +82,22 @@ def format_progress(events: List[Dict[str, Any]]) -> str:
     return text.strip() or "Thinking..."
 
 
+def warmup_status_text(stage: str, message: str) -> str:
+    """Status-line text for one `status` event from the warm-up stream."""
+    if stage == 'ready':
+        return "Ready"
+    return message or "Warming up"
+
+
+def waiting_for_warmup_text(status: str) -> str:
+    """What the chat shows for a question sent while the assistant is still starting up."""
+    doing = status or "Starting the server"
+    return (
+        f"The assistant is still starting up ({doing[0].lower()}{doing[1:]}). "
+        "Your question will be sent as soon as it is ready."
+    )
+
+
 def format_chat_response(events: List[Dict[str, Any]]) -> Tuple[str, List[Dict[str, Any]], Optional[str]]:
     """
     Format SSE events into a chat response.
