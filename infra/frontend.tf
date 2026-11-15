@@ -19,6 +19,14 @@ data "aws_cloudfront_origin_request_policy" "all_viewer_except_host" {
   name = "Managed-AllViewerExceptHostHeader"
 }
 
+# The CloudFront flat-rate Free plan does not allow custom response headers policies, so the
+# distribution uses the AWS-managed one (HSTS, nosniff, X-Frame-Options, Referrer-Policy).
+# The Content-Security-Policy is a <meta> tag injected into index.html at build time
+# (see frontend_web/csp.ts).
+data "aws_cloudfront_response_headers_policy" "security_headers" {
+  name = "Managed-SecurityHeadersPolicy"
+}
+
 data "aws_iam_openid_connect_provider" "github" {
   url = "https://token.actions.githubusercontent.com"
 }
@@ -221,33 +229,33 @@ removed {
   }
 }
 
-resource "aws_cloudfront_response_headers_policy" "security" {
-  name = "cg-assistant-security-headers"
-  security_headers_config {
-    content_security_policy {
-      content_security_policy = "default-src 'self'; connect-src 'self' https://*.amazoncognito.com; img-src 'self' data: blob: https://*.amazonaws.com; font-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://*.amazoncognito.com"
-      override                = true
-    }
-    content_type_options {
-      override = true
-    }
-    frame_options {
-      frame_option = "DENY"
-      override     = true
-    }
-    referrer_policy {
-      referrer_policy = "strict-origin-when-cross-origin"
-      override        = true
-    }
-    strict_transport_security {
-      access_control_max_age_sec = 31536000
-      include_subdomains         = true
-      preload                    = true
-      override                   = true
-    }
+# Moving to the CloudFront flat-rate Free plan retired these resources. Release tooling rejects
+# deletions, so they leave state without being destroyed. Delete them by hand afterwards
+# (see "CloudFront flat-rate Free plan" in infra/README.md).
+removed {
+  from = aws_cloudfront_response_headers_policy.security
+  lifecycle {
+    destroy = false
   }
 }
 
+removed {
+  from = aws_wafv2_web_acl_logging_configuration.frontend
+  lifecycle {
+    destroy = false
+  }
+}
+
+removed {
+  from = aws_cloudwatch_log_group.waf
+  lifecycle {
+    destroy = false
+  }
+}
+
+# The CloudFront flat-rate Free plan includes this web ACL at no charge and requires one to
+# stay associated with the distribution. Keep it, and stay within the plan's 5-rule limit.
+# WAF request logging is a Pro-tier feature, so none is configured.
 resource "aws_wafv2_web_acl" "frontend" {
   name  = "cg-assistant-web"
   scope = "CLOUDFRONT"
@@ -369,21 +377,9 @@ resource "aws_wafv2_web_acl" "frontend" {
   }
 }
 
-resource "aws_cloudwatch_log_group" "waf" {
-  name              = "aws-waf-logs-cg-assistant-web"
-  retention_in_days = 30
-}
-
-resource "aws_wafv2_web_acl_logging_configuration" "frontend" {
-  log_destination_configs = [aws_cloudwatch_log_group.waf.arn]
-  resource_arn            = aws_wafv2_web_acl.frontend.arn
-  redacted_fields {
-    single_header {
-      name = "x-cognito-token"
-    }
-  }
-}
-
+# Billed on the CloudFront flat-rate Free plan (subscribed outside Terraform; see
+# infra/README.md). Features the plan does not allow (custom response headers policies,
+# access logs) must not be added here, or the subscription will fail.
 resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
   comment             = "CG Production Assistant web and API"
@@ -415,7 +411,7 @@ resource "aws_cloudfront_distribution" "frontend" {
     allowed_methods            = ["GET", "HEAD", "OPTIONS"]
     cached_methods             = ["GET", "HEAD"]
     cache_policy_id            = data.aws_cloudfront_cache_policy.optimized.id
-    response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
+    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
     compress                   = true
     function_association {
       event_type   = "viewer-request"
@@ -431,14 +427,8 @@ resource "aws_cloudfront_distribution" "frontend" {
     cached_methods             = ["GET", "HEAD"]
     cache_policy_id            = data.aws_cloudfront_cache_policy.disabled.id
     origin_request_policy_id   = data.aws_cloudfront_origin_request_policy.all_viewer_except_host.id
-    response_headers_policy_id = aws_cloudfront_response_headers_policy.security.id
+    response_headers_policy_id = data.aws_cloudfront_response_headers_policy.security_headers.id
     compress                   = false
-  }
-
-  logging_config {
-    bucket          = aws_s3_bucket.frontend_logs.bucket_domain_name
-    include_cookies = false
-    prefix          = "cloudfront/"
   }
 
   restrictions {

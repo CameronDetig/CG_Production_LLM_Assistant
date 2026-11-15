@@ -74,7 +74,7 @@ Adopt and release the extractor first. Its first reviewed normal release publish
 
 The approval workflow is always explicit, with an additional environment-review gate when configured. All release/approval runs share a per-repository concurrency group and native S3 state locking. Saved plan contents are sensitive even when variables are marked sensitive. S3 blocks public access and expires plan objects and noncurrent versions; production state versions have no expiry.
 
-For rollback, dispatch the plan workflow with a retained `sha256:...` image digest, then review/approve the resulting plan. For an infra/configuration rollback, make a reviewed source revert and plan again. Each backend build receives both an immutable `sha-<commit>` tag and a sequential `vN` tag. The current ECR lifecycle policy retains the latest three versioned images; add any future retention changes separately, accounting for deployed and rollback digests.
+For rollback, dispatch the plan workflow with a retained `sha256:...` image digest, then review/approve the resulting plan. For an infra/configuration rollback, make a reviewed source revert and plan again. Each backend build receives both an immutable `sha-<commit>` tag and a sequential `vN` tag. The current ECR lifecycle policy retains the latest three versioned images, and expires `sha-`-only images after 30 days and untagged images after 7 days. Add any future retention changes separately, accounting for deployed and rollback digests.
 
 The old direct deployment scripts are disabled to prevent competing ownership.
 
@@ -96,7 +96,33 @@ aws lambda remove-permission --function-name cg-production-chatbot --statement-i
 2. Merge and approve the normal assistant Terraform release. This creates the private site/log buckets, CloudFront distribution, WAF, Cognito public client, runtime `config.json`, and frontend deployment role; it also enables Lambda response streaming and CloudFront-only invocation.
 3. After the Terraform apply completes, dispatch **Approve production release** with the plan run ID blank and **deploy frontend** ticked (see `docs/ci-cd.md`). Deployment is manual, and it fails if the deployment role does not exist yet, which is why step 2 comes first. The workflow never overwrites Terraform-owned `config.json`.
 
-The CloudFront hostname is the only initial public URL. Hashed assets receive immutable caching; HTML is deployed with revalidation and explicitly invalidated. S3 storage/requests, CloudFront, WAF rules/requests, log ingestion/storage, Lambda streaming duration, and Cognito active-user usage can all add cost.
+The CloudFront hostname is the only initial public URL. Hashed assets receive immutable caching; HTML is deployed with revalidation and explicitly invalidated. The distribution is on the CloudFront flat-rate Free plan (below), which covers CloudFront and WAF. S3 storage/requests, Lambda streaming duration, and Cognito active-user usage can still add cost.
+
+## CloudFront flat-rate Free plan
+
+The distribution is billed on the CloudFront flat-rate **Free** plan ($0/month). The plan includes the WAF web ACL, its rules and its requests, which cost about $8/month on pay-as-you-go. The `*.cloudfront.net` URL is unchanged. The plan covers 1M requests and 100 GB per month with no overage charges; sustained traffic above that can be slowed, and the fix is to upgrade to Pro ($15/month).
+
+Plan rules this configuration must keep to:
+- A WAF web ACL must stay associated with the distribution. Keep `aws_wafv2_web_acl.frontend` and stay within **5 rules** (3 are used today). Header-based and regex-based matching, CAPTCHA, and Bot Control need a paid tier.
+- Use **AWS-managed** response headers, cache and origin request policies only. Custom ones need the Business tier. The CSP lives in `frontend_web/csp.ts` as a meta tag instead.
+- No CloudFront access logs or WAF request logs (Pro tier). The `frontend_logs` bucket still receives S3 server access logs for the site bucket.
+
+AWS provider 6.23.0 and AWS CLI v2 have no pricing-plan API, so the subscription is a one-time console step. Do it after the Terraform release that removes the custom headers policy and the logging:
+
+1. Apply the reviewed release. Its plan shows `forget` for `aws_cloudfront_response_headers_policy.security`, `aws_wafv2_web_acl_logging_configuration.frontend`, and `aws_cloudwatch_log_group.waf`. They leave state without being destroyed (see "Removing a resource" above).
+2. Delete the retired resources by hand:
+   ```powershell
+   $acl = aws wafv2 list-web-acls --scope CLOUDFRONT --region us-east-1 --query "WebACLs[?Name=='cg-assistant-web'].ARN" --output text
+   aws wafv2 delete-logging-configuration --resource-arn $acl --region us-east-1
+   aws logs delete-log-group --log-group-name aws-waf-logs-cg-assistant-web --region us-east-1
+   $id = aws cloudfront list-response-headers-policies --type custom --query "ResponseHeadersPolicyList.Items[?ResponseHeadersPolicy.ResponseHeadersPolicyConfig.Name=='cg-assistant-security-headers'].ResponseHeadersPolicy.Id" --output text
+   $etag = aws cloudfront get-response-headers-policy --id $id --query ETag --output text
+   aws cloudfront delete-response-headers-policy --id $id --if-match $etag
+   ```
+3. CloudFront console → the distribution → **Pricing plan** → **Manage plan** → choose **Free**. The console lists any remaining unsupported features.
+4. Run `terraform plan` with the release inputs and confirm it shows no drift.
+
+To leave the plan, cancel it in the console first (see [Manage your flat-rate pricing plans](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/flat-rate-pricing-plan.html)). Only after the distribution is back on pay-as-you-go can the web ACL be removed, or custom headers or logging re-added.
 
 ## Runtime acceptance and operational limits
 

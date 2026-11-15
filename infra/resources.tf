@@ -56,6 +56,8 @@ resource "aws_cloudwatch_log_group" "application" {
 
 resource "aws_ecr_lifecycle_policy" "application" {
   policy = jsonencode({
+    # A lower-priority rule never expires an image a higher-priority rule matched, so the
+    # sha- rule only removes images that never received a v tag (released images carry both).
     rules = [{
       action = {
         type = "expire"
@@ -67,6 +69,31 @@ resource "aws_ecr_lifecycle_policy" "application" {
         countType     = "imageCountMoreThan"
         tagPrefixList = ["v"]
         tagStatus     = "tagged"
+      }
+      }, {
+      action = {
+        type = "expire"
+      }
+      description  = "Expire sha-only images that were never released"
+      rulePriority = 2
+      selection = {
+        countNumber   = 30
+        countType     = "sinceImagePushed"
+        countUnit     = "days"
+        tagPrefixList = ["sha-"]
+        tagStatus     = "tagged"
+      }
+      }, {
+      action = {
+        type = "expire"
+      }
+      description  = "Expire untagged images"
+      rulePriority = 3
+      selection = {
+        countNumber = 7
+        countType   = "sinceImagePushed"
+        countUnit   = "days"
+        tagStatus   = "untagged"
       }
     }]
   })
