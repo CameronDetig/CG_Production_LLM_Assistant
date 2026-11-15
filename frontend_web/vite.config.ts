@@ -1,5 +1,6 @@
 import { defineConfig, type Plugin } from "vitest/config";
 import react from "@vitejs/plugin-react";
+import { contentSecurityPolicyMeta } from "./csp";
 
 // Forward-slash filesystem path for a file URL (also strips the leading slash before a Windows drive letter).
 const toPath = (url: URL) => decodeURIComponent(url.pathname).replace(/^\/([A-Za-z]:)/, "$1");
@@ -22,7 +23,7 @@ function resolveTestDependencies(): Plugin {
 }
 
 export default defineConfig({
-  plugins: [react(), resolveTestDependencies()],
+  plugins: [react(), contentSecurityPolicyMeta(), resolveTestDependencies()],
   server: {
     fs: { allow: [".."] },
     proxy: {

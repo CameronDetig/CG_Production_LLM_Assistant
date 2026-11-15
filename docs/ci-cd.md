@@ -63,7 +63,7 @@ The PR triggers of `backend-checks.yml`, `infra-checks.yml` and `deploy-frontend
 Repository `cg-chatbot` (defined in `infra/resources.tf`):
 - Each image gets two tags: `sha-<commit>` and `v<N>`. Tags are **immutable**; pushing an existing tag fails. `deploy-backend.yml` reuses an existing `sha-` tag instead of rebuilding and only adds the new `v<N>` tag, and releases pin the image by digest.
 - Basic scan-on-push is on (free). Findings are informational and do not block a release. Enhanced scanning (Amazon Inspector) is not enabled; it is billed per image.
-- The lifecycle policy keeps the last 3 `v`-prefixed images.
+- The lifecycle policy keeps the last 3 `v`-prefixed images. It also expires `sha-` images that never got a `v` tag after 30 days, and untagged images after 7 days. A lower-priority rule never expires an image that a higher-priority rule matched, so the `sha-` tag on a retained `v` image is safe.
 
 ## Known gaps
 
