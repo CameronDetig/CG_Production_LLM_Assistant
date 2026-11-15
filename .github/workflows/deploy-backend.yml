@@ -47,21 +47,25 @@ jobs:
           terraform -chdir=infra init -backend=false -input=false -lockfile=readonly
           terraform -chdir=infra validate
           python -m unittest discover -s tests/infra -p 'test_*.py'
-      - name: Detect application changes
+      # Every push releases the image built from the newest commit that changed backend/,
+      # building it only if it is not in ECR yet. Comparing against the previous push
+      # instead would redeploy the image Lambda already runs whenever an earlier backend
+      # change never made it out (for example, when its release plan failed).
+      # A manual dispatch keeps the current image (or the rollback digest given).
+      - name: Select application image source
         id: changes
         env:
-          BEFORE: ${{ github.event.before }}
           EVENT: ${{ github.event_name }}
         run: |
-          changed=false
+          build=false
+          source_sha=""
           if [ "$EVENT" = push ]; then
-            if ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null; then
-              changed=true
-            elif ! git diff --quiet "$BEFORE" "$GITHUB_SHA" -- backend; then
-              changed=true
-            fi
+            build=true
+            source_sha=$(git log -1 --format=%H -- backend)
+            [[ "$source_sha" =~ ^[0-9a-f]{40}$ ]]
           fi
-          echo "build=$changed" >> "$GITHUB_OUTPUT"
+          echo "build=$build" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$source_sha" >> "$GITHUB_OUTPUT"
       - uses: aws-actions/configure-aws-credentials@v6
         if: steps.changes.outputs.build == 'true'
         with:
@@ -75,9 +79,11 @@ jobs:
         if: steps.changes.outputs.build == 'true'
         id: image
         shell: bash
+        env:
+          SOURCE_SHA: ${{ steps.changes.outputs.source_sha }}
         run: |
           set -euo pipefail
-          sha_tag="sha-$GITHUB_SHA"
+          sha_tag="sha-$SOURCE_SHA"
           digest=$(aws ecr describe-images --repository-name cg-chatbot --image-ids "imageTag=$sha_tag" --query 'imageDetails[0].imageDigest' --output text 2>/dev/null || true)
           version=$(aws ecr describe-images --repository-name cg-chatbot --image-ids "imageTag=$sha_tag" --query 'imageDetails[0].imageTags' --output text 2>/dev/null \
             | tr '\t' '\n' | grep -E '^v[0-9]+$' | sort -V | tail -n 1 || true)

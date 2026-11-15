@@ -452,7 +452,10 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
   viewer_certificate {
     cloudfront_default_certificate = true
-    minimum_protocol_version       = "TLSv1.2_2021"
+    # With the default *.cloudfront.net certificate, CloudFront always enforces and reports
+    # TLSv1 and ignores any other value, which showed up as a no-op diff in every plan.
+    # Raising the minimum needs a custom domain with an ACM certificate.
+    minimum_protocol_version = "TLSv1"
   }
   tags = {
     Project = "CG-Production-Assistant"
