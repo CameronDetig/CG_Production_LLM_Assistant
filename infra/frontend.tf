@@ -346,6 +346,9 @@ resource "aws_cloudfront_distribution" "frontend" {
       https_port             = 443
       origin_protocol_policy = "https-only"
       origin_ssl_protocols   = ["TLSv1.2"]
+      # The metadata database pauses when idle and takes about 15 seconds to resume, on top
+      # of any Lambda cold start, before the first byte of a non-streamed response.
+      origin_read_timeout = 60
     }
   }
 

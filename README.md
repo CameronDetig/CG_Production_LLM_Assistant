@@ -350,8 +350,8 @@ pip install -r requirements.txt -t package/
 | Lambda | ~$0.30 |
 | API Gateway | ~$0.004 |
 | Bedrock (GPT-OSS 20B, ~2.5k input / 500 output tokens per query) | ~$0.33 |
-| RDS PostgreSQL (t4g.micro, 20GB gp3) | ~$13.28 |
-| **Total** | **~$13.91/month** |
+| Aurora PostgreSQL Serverless v2 (pauses when idle; public IPv4 + storage + compute while in use) | ~$5 |
+| **Total** | **~$5.63/month** |
 
 ### Cost Optimization Tips
 
