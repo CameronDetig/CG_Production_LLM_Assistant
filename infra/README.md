@@ -103,11 +103,11 @@ The CloudFront hostname is the only initial public URL. Hashed assets receive im
 The distribution is billed on the CloudFront flat-rate **Free** plan ($0/month). The plan includes the WAF web ACL, its rules and its requests, which cost about $8/month on pay-as-you-go. The `*.cloudfront.net` URL is unchanged. The plan covers 1M requests and 100 GB per month with no overage charges; sustained traffic above that can be slowed, and the fix is to upgrade to Pro ($15/month).
 
 Plan rules this configuration must keep to:
-- A WAF web ACL must stay associated with the distribution. Keep `aws_wafv2_web_acl.frontend` and stay within **5 rules** (3 are used today). Header-based and regex-based matching, CAPTCHA, and Bot Control need a paid tier.
+- A WAF web ACL must stay associated with the distribution. Keep `aws_wafv2_web_acl.frontend` and stay within **5 rules** (2 are used today). Rules can't use byte-match, header-based or regex conditions, so a rate limit can't be scoped to particular paths; CAPTCHA and Bot Control also need a paid tier. The console names the offending feature when you hover over a greyed-out plan, while the API only reports "not eligible".
 - Use **AWS-managed** response headers, cache and origin request policies only. Custom ones need the Business tier. The CSP lives in `frontend_web/csp.ts` as a meta tag instead.
 - No CloudFront access logs or WAF request logs (Pro tier). The `frontend_logs` bucket still receives S3 server access logs for the site bucket.
 
-AWS provider 6.23.0 and AWS CLI v2 have no pricing-plan API, so the subscription is a one-time console step. Do it after the Terraform release that removes the custom headers policy and the logging:
+AWS provider 6.23.0 can't manage plan subscriptions, so subscribing is a one-time step outside Terraform. Do it after the Terraform releases that removed the custom headers policy, the logging and the path-scoped WAF rate rules:
 
 1. Apply the reviewed release. Its plan shows `forget` for `aws_cloudfront_response_headers_policy.security`, `aws_wafv2_web_acl_logging_configuration.frontend`, and `aws_cloudwatch_log_group.waf`. They leave state without being destroyed (see "Removing a resource" above).
 2. Delete the retired resources by hand:
@@ -119,10 +119,14 @@ AWS provider 6.23.0 and AWS CLI v2 have no pricing-plan API, so the subscription
    $etag = aws cloudfront get-response-headers-policy --id $id --query ETag --output text
    aws cloudfront delete-response-headers-policy --id $id --if-match $etag
    ```
-3. CloudFront console → the distribution → **Pricing plan** → **Manage plan** → choose **Free**. The console lists any remaining unsupported features.
+3. Subscribe with the AWS CLI (or in the CloudFront console: the distribution → **Pricing plan** → **Manage plan** → **Free**):
+   ```sh
+   aws pricing-plan-manager create-subscription --region us-east-1 --plan-family CloudFront --plan-tier FREE \
+     --resource-arns <distribution ARN> <web ACL ARN>
+   ```
 4. Run `terraform plan` with the release inputs and confirm it shows no drift.
 
-To leave the plan, cancel it in the console first (see [Manage your flat-rate pricing plans](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/flat-rate-pricing-plan.html)). Only after the distribution is back on pay-as-you-go can the web ACL be removed, or custom headers or logging re-added.
+To leave the plan, cancel it first (`aws pricing-plan-manager cancel-subscription`, or the console) (see [Manage your flat-rate pricing plans](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/flat-rate-pricing-plan.html)). Only after the distribution is back on pay-as-you-go can the web ACL be removed, or custom headers or logging re-added.
 
 ## Runtime acceptance and operational limits
 
