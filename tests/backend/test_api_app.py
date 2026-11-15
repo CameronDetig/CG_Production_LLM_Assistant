@@ -279,7 +279,7 @@ class WarmupStreamTest(ApiAppTestCase):
         self.mocks['warm_up_events_request'].return_value = iter([
             {'stage': 'server_ready', 'message': 'Server is up'},
             {'stage': 'warming', 'message': 'Waking the database'},
-            {'stage': 'ready', 'message': 'Ready', 'steps': {'database': '14800ms', 'models': 'warm'}},
+            {'stage': 'ready', 'message': 'Ready', 'steps': {'database': '14800ms', 'assistant': 'warm', 'search_model': 'loading'}},
         ])
         response = client.post('/api/warmup/stream', headers=AUTH)
         self.assertEqual(response.status_code, 200)

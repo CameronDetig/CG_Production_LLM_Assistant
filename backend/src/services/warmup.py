@@ -14,16 +14,21 @@ import logging
 import queue
 import threading
 import time
-from typing import Callable, Dict, Iterator, Set, Union
+from typing import Callable, Dict, Iterator, Optional, Set, Union
 
 logger = logging.getLogger(__name__)
 
 _lock = threading.Lock()
 _warm = False
-# Set by the streamed warmup once the model steps have run; the database is checked every time.
-_models_warm = False
+# Set by the streamed warmup once the assistant's code is loaded; the database is checked
+# every time.
+_assistant_warm = False
+# The background load of the text embedding model, started once per container.
+_search_model_thread: Optional[threading.Thread] = None
 
 DATABASE_STEP = "database_pools"
+# Only similarity searches need this, so the streamed warmup does not make requests wait for it.
+SEARCH_MODEL_STEP = "text_embeddings"
 
 
 def _load_agent_stack() -> None:
@@ -100,29 +105,57 @@ def _warm_database() -> str:
     return f"{(time.perf_counter() - started) * 1000:.0f}ms"
 
 
-def _warm_models() -> str:
-    """Run the model-loading steps once per container."""
-    global _models_warm
+def _warm_assistant() -> str:
+    """Load the code every chat request needs, once per container."""
+    global _assistant_warm
     started = time.perf_counter()
     with _lock:
-        if _warm or _models_warm:
+        if _warm or _assistant_warm:
             return "warm"
         for name, step in _STEPS.items():
-            if name != DATABASE_STEP:
+            if name not in (DATABASE_STEP, SEARCH_MODEL_STEP):
                 step()
-        _models_warm = True
+        _assistant_warm = True
     return f"{(time.perf_counter() - started) * 1000:.0f}ms"
 
 
-_GROUPS: Dict[str, Callable[[], str]] = {"database": _warm_database, "models": _warm_models}
+def _start_search_model() -> str:
+    """Begin loading the text embedding model without making anything wait for it.
+
+    Most questions are answered with plain SQL and never use it. A similarity search that
+    arrives before the load finishes waits for it inside get_text_embedding_model. Lambda
+    pauses this thread between requests and resumes it during the next one.
+    """
+    global _search_model_thread
+    step = _STEPS.get(SEARCH_MODEL_STEP)
+    if _warm or step is None:
+        return "warm"
+    if _search_model_thread is not None:
+        return "loading" if _search_model_thread.is_alive() else "warm"
+
+    def load() -> None:
+        global _search_model_thread
+        try:
+            step()
+        except Exception:
+            logger.exception("Background load of the search model failed")
+            # Let the next warmup try again; a request that needs it loads it on demand.
+            _search_model_thread = None
+
+    _search_model_thread = threading.Thread(target=load, daemon=True)
+    _search_model_thread.start()
+    return "loading"
+
+
+_GROUPS: Dict[str, Callable[[], str]] = {"database": _warm_database, "assistant": _warm_assistant}
 
 
 def _pending_message(pending: Set[str]) -> str:
-    if pending == {"database", "models"}:
-        return "Waking the database and loading models"
+    if pending == {"database", "assistant"}:
+        return "Waking the database and loading the assistant"
     if pending == {"database"}:
         return "Waking the database"
-    return "Loading models"
+    return "Loading the assistant"
 
 
 def warm_up_events() -> Iterator[Dict[str, object]]:
@@ -133,13 +166,15 @@ def warm_up_events() -> Iterator[Dict[str, object]]:
 
     - "server_ready": this container is running (a cold start is already over by now).
     - "warming": the message names what is still in progress.
-    - "ready": everything answered; "steps" holds how long each part took.
+    - "ready": a question can be answered now; "steps" holds how long each part took.
     - "partial": something failed. It is reported, never raised, and retried next call.
 
-    The database resume is network wait while model loading is CPU work, so the two run side
-    by side instead of one after the other.
+    The database resume is network wait while loading code is CPU work, so the two run side
+    by side instead of one after the other. The text embedding model loads in the background
+    and is not waited for: this request has to end before the container can take a question.
     """
     yield {"stage": "server_ready", "message": "Server is up"}
+    search_model = _start_search_model()
 
     finished: "queue.Queue[tuple]" = queue.Queue()
 
@@ -163,10 +198,13 @@ def warm_up_events() -> Iterator[Dict[str, object]]:
         if pending:
             yield {"stage": "warming", "message": _pending_message(pending)}
 
+    if search_model == "loading" and _search_model_thread is not None and not _search_model_thread.is_alive():
+        search_model = "warm"
+    results["search_model"] = search_model
     logger.info("Streamed warmup finished: %s", results)
     if results["database"] == "failed":
         yield {"stage": "partial", "message": "The database is not responding yet", "steps": results}
-    elif results["models"] == "failed":
+    elif results["assistant"] == "failed":
         yield {"stage": "partial", "message": "The assistant is not fully loaded yet", "steps": results}
     else:
         yield {"stage": "ready", "message": "Ready", "steps": results}
