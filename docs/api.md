@@ -82,15 +82,15 @@ This route does nothing once its container is warm, so it does not wake a databa
 
 ## POST /api/warmup/stream
 
-No body. Loads the models once per container and, on every call, waits for the metadata database to answer. The database pauses after five idle minutes and takes about 15 seconds to resume, so both clients call this after sign-in and again when the user returns after a quiet period, instead of leaving that wait to the first question.
+No body. Loads the assistant's code once per container and, on every call, waits for the metadata database to answer. The text embedding model, which only similarity searches use, starts loading in the background and is not waited for: a search that needs it before it is loaded waits then. The database pauses after five idle minutes and takes about 15 seconds to resume, so both clients call this after sign-in and again when the user returns after a quiet period, instead of leaving that wait to the first question.
 
 The response is a Server-Sent Events stream of `status` events with the same `stage` and `message` fields the chat stream uses. Show `message` to people.
 
 | `stage` | `message` | Meaning |
 |---|---|---|
 | `server_ready` | Server is up | The backend is running. Until this arrives a client can assume it is still starting. |
-| `warming` | Waking the database and loading models, Waking the database, or Loading models | What is still in progress. Sent again each time one part finishes. |
-| `ready` | Ready | Everything answered. `steps` has the time each part took, or `"warm"` for models already loaded. |
+| `warming` | Waking the database and loading the assistant, Waking the database, or Loading the assistant | What is still in progress. Sent again each time one part finishes. |
+| `ready` | Ready | A question can be answered now. `steps` has the time each part took, or `"warm"` for parts already loaded; `search_model` is `"loading"` while the embedding model is still loading in the background. |
 | `partial` | The database is not responding yet, or The assistant is not fully loaded yet | Something failed. It is retried on the next call; chat requests can still be sent. |
 
 ```text
@@ -98,13 +98,13 @@ event: status
 data: {"stage": "server_ready", "message": "Server is up"}
 
 event: status
-data: {"stage": "warming", "message": "Waking the database and loading models"}
+data: {"stage": "warming", "message": "Waking the database and loading the assistant"}
 
 event: status
 data: {"stage": "warming", "message": "Waking the database"}
 
 event: status
-data: {"stage": "ready", "message": "Ready", "steps": {"models": "4210ms", "database": "14870ms"}}
+data: {"stage": "ready", "message": "Ready", "steps": {"assistant": "4210ms", "database": "14870ms", "search_model": "loading"}}
 ```
 
 Warm-up is best effort: clients should ignore failures. Each backend instance serves one request at a time, so a chat request sent while this stream is open starts a second, cold instance. Both clients hold a question submitted during warm-up until the stream ends (for at most 30 seconds) and tell the user the assistant is still starting up.

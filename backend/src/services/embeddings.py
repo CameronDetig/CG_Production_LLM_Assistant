@@ -7,6 +7,7 @@ Uses the same models as the metadata extractor:
 
 import os
 import logging
+import threading
 from typing import List, Optional
 
 # Fix joblib multiprocessing warning in Lambda
@@ -25,6 +26,9 @@ logger = logging.getLogger()
 _text_model: Optional[SentenceTransformer] = None
 _clip_model: Optional[CLIPModel] = None
 _clip_processor: Optional[CLIPProcessor] = None
+# Warmup loads the text model in the background while requests are already being served.
+# A request that needs it waits here for that load instead of starting a second one.
+_text_model_lock = threading.Lock()
 
 
 # Define absolute paths to bundled models
@@ -55,14 +59,16 @@ def get_text_embedding_model() -> SentenceTransformer:
     global _text_model
     
     if _text_model is None:
-        logger.info(f"Loading text embedding model from: {TEXT_MODEL_PATH}")
-        try:
-            # Load explicitly from local directory
-            _text_model = SentenceTransformer(TEXT_MODEL_PATH, device='cpu')
-            logger.info("Text embedding model loaded successfully")
-        except Exception as e:
-            logger.error(f"Failed to load text model from {TEXT_MODEL_PATH}: {e}")
-            raise
+        with _text_model_lock:
+            if _text_model is None:
+                logger.info(f"Loading text embedding model from: {TEXT_MODEL_PATH}")
+                try:
+                    # Load explicitly from local directory
+                    _text_model = SentenceTransformer(TEXT_MODEL_PATH, device='cpu')
+                    logger.info("Text embedding model loaded successfully")
+                except Exception as e:
+                    logger.error(f"Failed to load text model from {TEXT_MODEL_PATH}: {e}")
+                    raise
     
     return _text_model
 

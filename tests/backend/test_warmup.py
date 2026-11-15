@@ -5,6 +5,7 @@ Run from the repo root:  PYTHONPATH=backend python tests/backend/test_warmup.py
 
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'backend'))
 
@@ -13,7 +14,8 @@ from src.services import warmup  # noqa: E402
 
 def _reset(steps):
     warmup._warm = False
-    warmup._models_warm = False
+    warmup._assistant_warm = False
+    warmup._search_model_thread = None
     warmup._STEPS.clear()
     warmup._STEPS.update(steps)
 
@@ -67,8 +69,8 @@ def test_stream_reports_server_then_progress_then_ready():
     stages = [event["stage"] for event in events]
     assert stages[0] == "server_ready" and stages[-1] == "ready", stages
     assert set(stages[1:-1]) == {"warming"}, stages
-    assert events[1]["message"] == "Waking the database and loading models"
-    assert set(events[-1]["steps"]) == {"database", "models"}
+    assert events[1]["message"] == "Waking the database and loading the assistant"
+    assert set(events[-1]["steps"]) == {"database", "assistant", "search_model"}
     assert sorted(calls) == ["awake", "models", "pools"], calls
 
 
@@ -82,7 +84,7 @@ def test_stream_checks_the_database_again_on_a_warm_container():
 
     # The database pauses by itself, so only the models are remembered as warm.
     assert len(model_loads) == 1 and len(wakes) == 2, (model_loads, wakes)
-    assert second[-1]["steps"]["models"] == "warm"
+    assert second[-1]["steps"]["assistant"] == "warm"
 
 
 def test_stream_reports_an_unreachable_database_without_raising():
@@ -98,10 +100,58 @@ def test_stream_reports_an_unreachable_database_without_raising():
     assert "database" in events[-1]["message"]
 
 
+def test_stream_does_not_wait_for_the_search_model():
+    import threading
+
+    release = threading.Event()
+    loads = []
+
+    def slow_search_model():
+        loads.append(1)
+        release.wait(timeout=5)
+
+    _reset({"agent_stack": lambda: None, "text_embeddings": slow_search_model, "database_pools": lambda: None})
+    try:
+        first = _stream(lambda: None)
+        second = _stream(lambda: None)
+        # Ready while the model is still loading, and the load is not started twice.
+        assert first[-1]["stage"] == "ready" and first[-1]["steps"]["search_model"] == "loading", first[-1]
+        assert second[-1]["steps"]["search_model"] == "loading", second[-1]
+        assert loads == [1], loads
+    finally:
+        release.set()
+        warmup._search_model_thread.join(timeout=5)
+
+    assert _stream(lambda: None)[-1]["steps"]["search_model"] == "warm"
+
+
+def test_failed_search_model_load_is_retried_by_the_next_warmup():
+    attempts = []
+
+    def broken():
+        attempts.append(1)
+        raise RuntimeError("model files missing")
+
+    _reset({"agent_stack": lambda: None, "text_embeddings": broken, "database_pools": lambda: None})
+    assert _stream(lambda: None)[-1]["stage"] == "ready"
+    for _ in range(50):
+        if warmup._search_model_thread is None:
+            break
+        time.sleep(0.01)
+    _stream(lambda: None)
+    for _ in range(50):
+        if len(attempts) == 2:
+            break
+        time.sleep(0.01)
+    assert len(attempts) == 2, attempts
+
+
 if __name__ == "__main__":
     test_runs_each_step_once_then_short_circuits()
     test_failed_step_is_reported_not_raised_and_retried()
     test_stream_reports_server_then_progress_then_ready()
     test_stream_checks_the_database_again_on_a_warm_container()
     test_stream_reports_an_unreachable_database_without_raising()
+    test_stream_does_not_wait_for_the_search_model()
+    test_failed_search_model_load_is_retried_by_the_next_warmup()
     print("warmup tests passed")
