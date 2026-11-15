@@ -163,7 +163,7 @@ class ChatStreamTest(ApiAppTestCase):
         super().setUp()
         self.mocks['generate_title_from_query'].return_value = 'Title'
         self.mocks['create_conversation'].return_value = 'new-conv'
-        self.mocks['run_chat_agent_request'].return_value = {
+        self.agent_result = {
             'enhanced_query': 'better query',
             'sql_query': 'SELECT 1',
             'query_results': [{'n': 1}],
@@ -171,6 +171,16 @@ class ChatStreamTest(ApiAppTestCase):
             'thumbnails_to_display': [],
             'final_answer': 'One row.',
         }
+
+        def run_agent(query, history, image, filters, on_event):
+            # The real agent reports these from inside its graph nodes as each step finishes.
+            on_event('enhanced_query', {'query': 'better query'})
+            on_event('status', {'stage': 'generating_sql', 'message': 'Writing a database query'})
+            on_event('sql_query', {'query': 'SELECT 1', 'attempt': 1})
+            on_event('query_results', {'count': 1, 'attempt': 1, 'results': [{'n': 1}]})
+            return self.agent_result
+
+        self.mocks['run_chat_agent_request'].side_effect = run_agent
         self.mocks['stream_final_answer_request'].return_value = iter(['One ', 'row.'])
 
     def chat(self, body):
@@ -183,13 +193,32 @@ class ChatStreamTest(ApiAppTestCase):
         events = self.chat({'query': 'how many?'})
         names = [name for name, _ in events]
         self.assertEqual(names, [
-            'agent_start', 'status', 'enhanced_query', 'sql_query', 'query_results',
-            'answer_start', 'answer_chunk', 'answer_chunk', 'answer_end', 'done',
+            'agent_start', 'status', 'enhanced_query', 'status', 'sql_query', 'query_results',
+            'status', 'answer_start', 'answer_chunk', 'answer_chunk', 'answer_end', 'done',
         ])
+        self.assertEqual(events[3][1], {'stage': 'generating_sql', 'message': 'Writing a database query'})
+        self.assertEqual(events[6][1]['stage'], 'answering')
         self.assertEqual(events[0][1]['conversation_id'], 'new-conv')
         self.assertEqual(events[-1][1], {'conversation_id': 'new-conv', 'message_count': 2})
         assistant_call = self.mocks['add_message'].call_args_list[-1]
         self.assertEqual(assistant_call.args[:4], ('new-conv', 'user-1', 'assistant', 'One row.'))
+
+    def test_agent_events_are_streamed_as_reported_not_replayed_from_result(self):
+        self.mocks['run_chat_agent_request'].side_effect = None
+        self.mocks['run_chat_agent_request'].return_value = self.agent_result
+        events = self.chat({'query': 'q'})
+        names = [name for name, _ in events]
+        for name in ('enhanced_query', 'sql_query', 'query_results'):
+            self.assertNotIn(name, names)
+
+    def test_thumbnails_follow_agent_events(self):
+        thumbnail = {'file_id': 7, 'file_name': 'a.png', 'file_type': 'image', 'thumbnail_url': 'https://t'}
+        self.agent_result['thumbnails_to_display'] = [thumbnail]
+        events = self.chat({'query': 'q'})
+        names = [name for name, _ in events]
+        self.assertLess(names.index('query_results'), names.index('thumbnail'))
+        self.assertLess(names.index('thumbnail'), names.index('answer_start'))
+        self.assertIn(('thumbnail', thumbnail), events)
 
     def test_active_filters_are_announced_and_passed_to_agent(self):
         filters = {'shows': ['charge'], 'file_types': []}

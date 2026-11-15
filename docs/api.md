@@ -1,6 +1,6 @@
 # HTTP API
 
-The backend API that the web frontend and the Blender add-on both call. It is implemented in `backend/api_app.py` (FastAPI) and served at `/api/*` on the site's CloudFront domain, which forwards to API Gateway and then to the Lambda function.
+The backend API that the web frontend and the Blender add-on both call. It is implemented in `backend/api_app.py` (FastAPI) and served at `/api/*` on the site's CloudFront domain, which forwards to the Lambda function's Function URL. CloudFront signs those requests (origin access control), so the Function URL rejects anything that does not come through CloudFront.
 
 A machine-readable schema is in [openapi.json](openapi.json). Paste it into any OpenAPI viewer (for example <https://editor.swagger.io>) to browse it as Swagger. It is generated, so regenerate it rather than editing it (see [Regenerating the OpenAPI file](#regenerating-the-openapi-file)). The interactive Swagger page is deliberately not served by the live site.
 
@@ -22,13 +22,14 @@ OpenAPI cannot describe the event stream that `/api/chat` returns, so that part 
 
 ## Authentication
 
-Authenticated endpoints need a Cognito **ID token**:
+Authenticated endpoints need a Cognito **ID token**. Requests through CloudFront need two headers:
 
 ```
-Authorization: Bearer <id_token>
+X-Cognito-Token: <id_token>
+X-Amz-Content-Sha256: <hex SHA-256 of the request body>
 ```
 
-API Gateway's JWT authorizer checks this header before the request reaches the backend, and the backend validates the token again. The backend also accepts the token in an `X-Cognito-Token` header; the web frontend sends both, plus an `X-Amz-Content-Sha256` body hash (see `frontend_web/src/api.ts`).
+CloudFront replaces `Authorization` with its own signature when it forwards the request to Lambda, so the token has to travel in `X-Cognito-Token`. That signature also covers the body, which is why every request, including ones without a body or without a token such as `POST /api/auth`, must send the body hash (the hash of an empty string for no body). The backend validates the token itself on every protected route. When calling a local backend directly, `Authorization: Bearer <id_token>` also works. The web frontend (`frontend_web/src/api.ts`) and the Blender add-on (`frontend_blender/api_client.py`) send all three.
 
 The web frontend gets its token from the Cognito hosted sign-in page. Clients that cannot do a browser redirect, such as the Blender add-on, use `POST /api/auth`.
 
@@ -42,7 +43,7 @@ Errors raised by the backend are JSON with a `detail` field:
 { "detail": "Conversation not found" }
 ```
 
-A request body that fails validation returns `422`, where `detail` is a list describing each invalid field. A `401` produced by API Gateway before the request reaches the backend has API Gateway's own body (`{"message": "Unauthorized"}`).
+A request body that fails validation returns `422`, where `detail` is a list describing each invalid field. A request that CloudFront cannot sign correctly, for example a `POST` without `X-Amz-Content-Sha256`, is rejected by Lambda with `403` before it reaches the backend.
 
 Failures inside a chat stream are reported as an `error` event in the stream, not as an HTTP status (see below).
 
@@ -141,7 +142,7 @@ Filters apply to one request. They are not remembered for the conversation, so s
 
 The response is `text/event-stream`. Each event is an `event:` line, a `data:` line holding one JSON object, and a blank line. Lines starting with `:` are heartbeat comments and carry no data.
 
-The deployed API is buffered (`AWS_LWA_INVOKE_MODE=buffered` in `backend/Dockerfile`, because API Gateway HTTP APIs do not stream), so a client receives the whole stream at once when the answer is complete. Parse it as a stream anyway: the format is the same when the backend is run locally, where events do arrive one by one.
+Events are sent as each step finishes, both locally and when deployed (the Function URL uses `RESPONSE_STREAM` and the adapter runs with `AWS_LWA_INVOKE_MODE=response_stream` in `backend/Dockerfile`). Clients should show them as they arrive. The interpreted request, SQL and results come from inside the agent while it runs, so they appear before the answer starts.
 
 Events, in the order they are sent:
 
@@ -149,16 +150,29 @@ Events, in the order they are sent:
 |---|---|---|
 | `agent_start` | `conversation_id`, `attempts` | Always first. Use `conversation_id` for the next message. |
 | `filters` | `shows`, `file_types` | Only when the request had at least one filter value |
-| `status` | `stage`, `message` | Progress text for display |
+| `status` | `stage`, `message` | Progress text for display. Sent whenever the assistant moves to a new step (see the stages below), so it can appear several times and between the other events. |
 | `enhanced_query` | `query` | The request as the assistant interpreted it. Absent for general questions that need no database query. |
 | `sql_query` | `query`, `attempt` | Once per SQL attempt |
 | `query_results` | `count`, `attempt`, `results` | After an attempt that ran. `results` holds at most the first 5 rows. |
-| `retry_feedback` | `feedback`, `attempt` | After an attempt judged unsatisfactory |
+| `retry_feedback` | `feedback`, `attempt` | After an attempt judged unsatisfactory. A second `sql_query` with `attempt: 2` follows. |
 | `thumbnail` | `file_id`, `file_name`, `file_type`, `thumbnail_url` | Once per result with a thumbnail, at most 10. `thumbnail_url` is a presigned URL that expires. |
 | `answer_start` | (empty) | The answer text follows |
 | `answer_chunk` | `text` | One or more; concatenate `text` to build the answer |
 | `answer_end` | (empty) | |
 | `done` | `conversation_id`, `message_count` | Always last on success |
+
+`status` stages, in the order they can occur. Show `message` to people; use `stage` in code.
+
+| `stage` | `message` |
+|---|---|
+| `analyzing` | Analyzing your request |
+| `embedding` | Preparing similarity search, or Encoding your uploaded image (only for similarity and image searches) |
+| `generating_sql` | Writing a database query, or Revising the database query (attempt N) |
+| `running_sql` | Running the query |
+| `evaluating` | Checking the results |
+| `answering` | Writing the answer |
+
+General questions that need no database query go straight from `analyzing` to `answering`. New stages may be added; treat an unknown `stage` like any other and show its `message`.
 
 If the request fails after the stream has started, the stream ends with `error` (`message`) followed by `done` with `"failed": true`.
 
@@ -181,11 +195,23 @@ data: {"stage": "analyzing", "message": "Analyzing your request"}
 event: enhanced_query
 data: {"query": "Count the image files"}
 
+event: status
+data: {"stage": "generating_sql", "message": "Writing a database query"}
+
 event: sql_query
 data: {"query": "SELECT COUNT(*) FROM files f WHERE f.file_type = 'image'", "attempt": 1}
 
+event: status
+data: {"stage": "running_sql", "message": "Running the query"}
+
 event: query_results
 data: {"count": 1, "attempt": 1, "results": [{"count": 214, "thumbnail_url": null, "download_url": null}]}
+
+event: status
+data: {"stage": "evaluating", "message": "Checking the results"}
+
+event: status
+data: {"stage": "answering", "message": "Writing the answer"}
 
 event: answer_start
 data: {}
@@ -228,7 +254,7 @@ Both return `404` when the conversation does not exist or belongs to another use
 
 - Add request and response fields as optional, and keep ignoring unknown SSE events in the clients, so the web frontend and the Blender add-on can be released independently of the backend.
 - Update this file and regenerate `openapi.json` in the same commit as the change.
-- New authenticated `/api/*` paths need no infrastructure change: API Gateway's default route already sends them to the backend behind the JWT authorizer. A new **public** path needs its own route in `infra/frontend.tf`.
+- New `/api/*` paths need no infrastructure change: CloudFront sends every `/api/*` request to the Function URL. Protect an authenticated path with the `authenticated_user` dependency in `backend/api_app.py`; nothing in front of the backend checks tokens.
 
 ### Regenerating the OpenAPI file
 

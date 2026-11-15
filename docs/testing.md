@@ -61,8 +61,8 @@ Checks (each retried up to 6 times, 10 seconds apart, because CloudFront invalid
 
 1. `GET /` returns 200 and the app shell (`#root`).
 2. `GET /config.json` returns 200 with non-empty `cognitoDomain` and `cognitoClientId`. The copy in the repo is an empty placeholder; Terraform generates the real one.
-3. `GET /api/health` returns 200 `{"status":"ok"}`, which proves CloudFront to API Gateway to Lambda.
-4. Anonymous `GET /api/conversations` returns 401, which proves the JWT authorizer is attached.
+3. `GET /api/health` returns 200 `{"status":"ok"}`, which proves CloudFront to the Lambda Function URL to the backend.
+4. Anonymous `GET /api/conversations` returns 401, which proves the backend still requires a token on protected routes.
 
 A failure turns the release run red but **does not roll back**; the apply or deploy has already happened. Investigate, then fix forward or redeploy a previous plan or frontend build. Tune with `SMOKE_ATTEMPTS` and `SMOKE_DELAY_SECONDS`. If Python on your machine cannot verify certificates (a common macOS python.org install), point `SSL_CERT_FILE` at a CA bundle such as `/etc/ssl/cert.pem`; do not disable verification.
 

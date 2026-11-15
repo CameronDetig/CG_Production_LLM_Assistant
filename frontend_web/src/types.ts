@@ -53,6 +53,8 @@ export interface Message {
   thumbnails?: Thumbnail[];
   filters?: SearchFilters;
   pending?: boolean;
+  /** Progress text from the latest `status` event, shown while the message is pending. */
+  stage?: string;
   error?: boolean;
 }
 

@@ -3,6 +3,7 @@
 Run from the repo root:  python -m unittest discover -s tests/frontend_blender -p 'test_*.py'
 """
 
+import hashlib
 import io
 import json
 import os
@@ -15,6 +16,7 @@ from unittest.mock import MagicMock, patch
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'frontend_blender'))
 
 from api_client import APIClient  # noqa: E402
+from utils import format_progress  # noqa: E402
 
 
 def fake_response(body, status=200):
@@ -55,6 +57,32 @@ class APIClientTest(unittest.TestCase):
 
         request = urlopen.call_args.args[0]
         self.assertEqual(request.get_header('Authorization'), 'Bearer jwt-value')
+
+    def test_token_is_also_sent_in_x_cognito_token(self):
+        # CloudFront overwrites Authorization when it signs the request to Lambda.
+        client = APIClient('https://example.test')
+        client.set_token('jwt-value')
+        with patch('api_client.urllib.request.urlopen', return_value=fake_response({})) as urlopen:
+            client.get_conversations()
+
+        # urllib stores header names with only the first letter capitalized.
+        self.assertEqual(urlopen.call_args.args[0].get_header('X-cognito-token'), 'jwt-value')
+
+    def test_body_hash_is_sent_for_cloudfront_signing(self):
+        client = APIClient('https://example.test')
+        with patch('api_client.urllib.request.urlopen', return_value=fake_response({})) as urlopen:
+            client.get_conversations()
+            client.authenticate('user@example.com', 'secret')
+        with patch('api_client.urllib.request.urlopen', return_value=fake_stream([])) as stream_urlopen:
+            client.chat_stream('find rigs')
+
+        get_request, post_request = (call.args[0] for call in urlopen.call_args_list)
+        chat_request = stream_urlopen.call_args.args[0]
+        self.assertEqual(get_request.get_header('X-amz-content-sha256'), hashlib.sha256(b'').hexdigest())
+        for request in (post_request, chat_request):
+            self.assertEqual(
+                request.get_header('X-amz-content-sha256'), hashlib.sha256(request.data).hexdigest()
+            )
 
     def test_no_authorization_header_without_a_token(self):
         client = APIClient('https://example.test')
@@ -118,6 +146,46 @@ class APIClientTest(unittest.TestCase):
         self.assertTrue(result.success)
         self.assertIn('[Searching only]: shows: spring; types: image, blend', result.data['text'])
         self.assertTrue(result.data['text'].endswith('Found 2.'))
+
+    def test_chat_reports_every_event_as_it_arrives(self):
+        client = APIClient('https://example.test')
+        lines = [
+            'event: status',
+            'data: {"stage": "generating_sql", "message": "Writing a database query"}',
+            '',
+            ': heartbeat',
+            '',
+            'event: sql_query',
+            'data: {"query": "SELECT 1", "attempt": 1}',
+        ]
+        seen = []
+        with patch('api_client.urllib.request.urlopen', return_value=fake_stream(lines)):
+            client.chat_stream('q', on_event=lambda event, data: seen.append((event, data)))
+
+        self.assertEqual(seen, [
+            ('status', {'stage': 'generating_sql', 'message': 'Writing a database query'}),
+            ('sql_query', {'query': 'SELECT 1', 'attempt': 1}),
+        ])
+
+    def test_progress_text_shows_steps_and_current_stage(self):
+        events = [
+            {'event': 'status', 'data': {'message': 'Analyzing your request'}},
+            {'event': 'enhanced_query', 'data': {'query': 'Count images'}},
+            {'event': 'status', 'data': {'message': 'Running the query'}},
+        ]
+        text = format_progress(events)
+        self.assertIn('[Enhanced Query]: Count images', text)
+        self.assertTrue(text.endswith('Running the query...'))
+        self.assertNotIn('Analyzing', text)
+
+    def test_progress_text_drops_the_stage_once_the_answer_streams(self):
+        events = [
+            {'event': 'status', 'data': {'message': 'Writing the answer'}},
+            {'event': 'answer_start', 'data': {}},
+            {'event': 'answer_chunk', 'data': {'text': 'There are 205.'}},
+        ]
+        self.assertTrue(format_progress(events).endswith('There are 205.'))
+        self.assertEqual(format_progress([]), 'Thinking...')
 
     def test_connection_failure_is_reported_not_raised(self):
         client = APIClient('https://example.test')

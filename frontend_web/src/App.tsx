@@ -27,6 +27,7 @@ import {
   warmUpBackend,
 } from "./api";
 import { FilterChips, FilterMenu } from "./Filters";
+import { Thinking } from "./Thinking";
 import { countFilters, describeFilters, loadStoredFilters, pruneFilters, storeFilters } from "./searchFilters";
 import type {
   ConversationSummary,
@@ -91,7 +92,7 @@ function MessageCard({ message }: { message: Message }) {
       <div className="message-body">
         <div className="message-label">{message.role === "user" ? "You" : "Assistant"}</div>
         {message.imageUrl && <img className="upload-preview-inline" src={message.imageUrl} alt="Uploaded search reference" />}
-        {message.pending && !message.content ? <div className="thinking"><i /><i /><i /></div> : (
+        {message.pending && !message.content ? <Thinking stage={message.stage} /> : (
           <ReactMarkdown remarkPlugins={[remarkGfm]}>{message.content}</ReactMarkdown>
         )}
         {scope && <p className="filter-scope">Searched only in: {scope}</p>}
@@ -230,7 +231,9 @@ export default function App() {
       return;
     }
     if (event.event === "status") {
-      setStatus(String(event.data.message ?? "Working"));
+      const stage = String(event.data.message ?? "Working");
+      setStatus(stage);
+      updateAssistant((message) => ({ ...message, stage }));
       return;
     }
     if (["enhanced_query", "sql_query", "query_results", "retry_feedback"].includes(event.event)) {
@@ -245,8 +248,9 @@ export default function App() {
       return;
     }
     if (event.event === "answer_start") {
-      setStatus("Writing answer");
-      updateAssistant((message) => ({ ...message, pending: false }));
+      // Stay pending until the first chunk so the indicator doesn't vanish before any text arrives.
+      setStatus("Writing the answer");
+      updateAssistant((message) => ({ ...message, stage: "Writing the answer" }));
       return;
     }
     if (event.event === "answer_chunk") {
@@ -258,7 +262,10 @@ export default function App() {
       setStatus("Error");
       return;
     }
-    if (event.event === "done") setStatus(event.data.failed ? "Request failed" : "Ready");
+    if (event.event === "done") {
+      setStatus(event.data.failed ? "Request failed" : "Ready");
+      updateAssistant((message) => ({ ...message, pending: false }));
+    }
   };
 
   const send = async (override?: string) => {

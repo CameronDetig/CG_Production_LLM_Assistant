@@ -66,6 +66,22 @@ def process_sse_events(lines: List[str]) -> Generator[Dict[str, Any], None, None
                 continue
 
 
+def format_progress(events: List[Dict[str, Any]]) -> str:
+    """
+    Text for an in-progress assistant message: the steps received so far, followed by the
+    current stage from the latest `status` event until the answer starts arriving.
+    """
+    text, _, _ = format_chat_response(events)
+    stage = None
+    for event in events:
+        if event.get('event') == 'status':
+            stage = event.get('data', {}).get('message')
+    answering = any(event.get('event') == 'answer_chunk' for event in events)
+    if stage and not answering:
+        text = f"{text.rstrip()}\n\n{stage}..." if text.strip() else f"{stage}..."
+    return text.strip() or "Thinking..."
+
+
 def format_chat_response(events: List[Dict[str, Any]]) -> Tuple[str, List[Dict[str, Any]], Optional[str]]:
     """
     Format SSE events into a chat response.

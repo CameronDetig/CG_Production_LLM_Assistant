@@ -188,6 +188,12 @@ class CG_SceneProperties(PropertyGroup):
         default=False
     )
     
+    loading_stage: StringProperty(
+        name="Loading Stage",
+        description="What the assistant is currently doing, from the latest status event",
+        default=""
+    )
+    
     current_response: StringProperty(
         name="Current Response",
         description="Streaming response accumulator",

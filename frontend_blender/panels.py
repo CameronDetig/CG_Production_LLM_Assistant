@@ -94,7 +94,7 @@ class CG_PT_MainPanel(Panel):
         if props.is_loading:
             row = layout.row()
             row.alert = True
-            row.label(text="Loading...", icon='SORTTIME')
+            row.label(text=props.loading_stage or "Loading...", icon='SORTTIME')
 
 
 class CG_PT_AuthPanel(Panel):

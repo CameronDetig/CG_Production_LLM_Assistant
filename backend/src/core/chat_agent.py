@@ -8,8 +8,9 @@ import json
 import time
 import yaml
 import os
-from typing import List, Dict, Any, Optional, TypedDict, Annotated
+from typing import Callable, List, Dict, Any, Optional, TypedDict, Annotated
 import operator
+from langgraph.config import get_stream_writer
 from langgraph.graph import StateGraph, END
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage
 
@@ -67,6 +68,22 @@ class ChatAgentState(TypedDict):
 
 # Maximum SQL generation attempts
 MAX_ATTEMPTS = 2
+
+
+def _emit(event: str, data: Dict[str, Any]) -> None:
+    """Report progress to whoever is streaming the graph (see run_chat_agent's on_event).
+
+    A no-op when the graph is not streamed, or when a node is called directly outside a run.
+    """
+    try:
+        writer = get_stream_writer()
+    except RuntimeError:
+        return
+    writer({"event": event, "data": data})
+
+
+def _status(stage: str, message: str) -> None:
+    _emit("status", {"stage": stage, "message": message})
 
 
 def create_chat_agent() -> StateGraph:
@@ -216,6 +233,7 @@ Respond in strict JSON format:
                 # This is a database query - enhance it for SQL generation
                 state['enhanced_query'] = parsed.get('enhanced_query', state['user_query'])
                 state['query_intent'] = parsed.get('intent', {})
+                _emit("enhanced_query", {"query": state['enhanced_query']})
                 logger.info(f"Database query detected. Enhanced query: {state['enhanced_query']}")
                 logger.info(f"Intent: {state['query_intent']}")
         else:
@@ -241,6 +259,11 @@ def embedding_determination_node(state: ChatAgentState) -> ChatAgentState:
     logger.info("Embedding determination node")
     
     intent = state.get('query_intent', {})
+
+    if state.get('uploaded_image_base64') and intent.get('needs_visual_embedding', False):
+        _status("embedding", "Encoding your uploaded image")
+    elif intent.get('needs_text_embedding', False) or intent.get('needs_visual_embedding', False):
+        _status("embedding", "Preparing similarity search")
     
     # Generate text embedding if needed
     if intent.get('needs_text_embedding', False):
@@ -284,6 +307,10 @@ def sql_generation_node(state: ChatAgentState) -> ChatAgentState:
     """
     start_time = time.time()
     logger.info(f"SQL generation node - Attempt {state['attempt_count'] + 1}/{state['max_attempts']}")
+    if state['attempt_count'] == 0:
+        _status("generating_sql", "Writing a database query")
+    else:
+        _status("generating_sql", f"Revising the database query (attempt {state['attempt_count'] + 1})")
     
     # Build conversation history context for follow-up questions
     conversation_recall_depth = 3  # how many previous messages to include in conversation context
@@ -442,6 +469,7 @@ Respond in strict JSON format like this:
             'results': None,  # Will be filled in result_evaluation_node
             'feedback': None  # Will be filled if retry needed
         })
+        _emit("sql_query", {"query": sql, "attempt": state['attempt_count'] + 1})
         
         logger.info(f"Generated SQL: {sql[:200]}...")
         
@@ -473,6 +501,9 @@ def result_evaluation_node(state: ChatAgentState) -> ChatAgentState:
         state['final_answer'] = "I was unable to generate a valid SQL query for your request. Please try reformatting your question."
         state['query_results'] = []
         return state
+
+    attempt = state['attempt_count'] + 1
+    _status("running_sql", "Running the query")
     
     try:
         # Validates the query is a single read-only SELECT (real parse-tree
@@ -488,6 +519,11 @@ def result_evaluation_node(state: ChatAgentState) -> ChatAgentState:
         if state['sql_query_history']:
             state['sql_query_history'][-1]['results'] = state['query_results']
             state['sql_query_history'][-1]['result_count'] = len(state['query_results'])
+        _emit("query_results", {
+            "count": len(state['query_results']),
+            "attempt": attempt,
+            "results": state['query_results'][:5],
+        })
 
     except Exception as e:
         error_msg = str(e)
@@ -606,6 +642,7 @@ Does this answer the user's question? Respond in JSON:
 }}
 """
     
+    _status("evaluating", "Checking the results")
     eval_response = invoke_bedrock(eval_prompt, streaming=False, temperature=0.3, max_tokens=1024)
     
     logger.info(f"Evaluation response (first 200 chars): {eval_response[:200]}")
@@ -648,6 +685,7 @@ Does this answer the user's question? Respond in JSON:
                 if state['sql_query_history']:
                     state['sql_query_history'][-1]['feedback'] = state['evaluation_feedback']
                     state['sql_query_history'][-1]['satisfactory'] = False
+                _emit("retry_feedback", {"feedback": state['evaluation_feedback'], "attempt": attempt})
                 
                 if state['attempt_count'] + 1 >= state['max_attempts']:
                     # Max attempts reached - provide simple explanation with results
@@ -744,7 +782,8 @@ def run_chat_agent(
     conversation_history: List[Dict[str, str]] = None,
     uploaded_image_base64: str = None,
     max_attempts: int = MAX_ATTEMPTS,
-    filters: Optional[Dict[str, Any]] = None
+    filters: Optional[Dict[str, Any]] = None,
+    on_event: Optional[Callable[[str, Dict[str, Any]], None]] = None
 ) -> Dict[str, Any]:
     """
     Run the chat agent for a user query.
@@ -756,6 +795,9 @@ def run_chat_agent(
         max_attempts: Maximum SQL generation attempts
         filters: Optional {"shows": [...], "file_types": [...]} restriction applied to
             every generated query
+        on_event: Optional callback receiving (event, data) for each progress event as the
+            graph runs: status, enhanced_query, sql_query, query_results, retry_feedback.
+            Called from the thread running the agent.
         
     Returns:
         Dict with final_answer, query_results, and all SQL queries attempted
@@ -790,8 +832,13 @@ def run_chat_agent(
     # Print ASCII graph for debugging
     # print(agent.get_graph().draw_ascii())
     
-    # Run agent with intermediate state tracking
-    final_state = agent.invoke(initial_state)
+    # Stream the run so nodes' progress events (see _emit) reach the caller as they happen.
+    final_state = initial_state
+    for mode, chunk in agent.stream(initial_state, stream_mode=["custom", "values"]):
+        if mode == "values":
+            final_state = chunk
+        elif on_event:
+            on_event(chunk["event"], chunk["data"])
     
     return {
         'final_answer': final_state.get('final_answer'),

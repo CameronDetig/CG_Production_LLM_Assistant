@@ -4,6 +4,7 @@ Handles authentication, chat, and conversation management.
 Uses threading for non-blocking requests.
 """
 
+import hashlib
 import json
 import urllib.request
 import urllib.error
@@ -44,6 +45,22 @@ class APIClient:
     def set_token(self, token: str):
         """Set the authentication token."""
         self.token = token
+
+    def _base_headers(self, body: Optional[bytes]) -> Dict[str, str]:
+        """Headers every request needs to pass CloudFront and reach the backend.
+
+        CloudFront signs requests to the Lambda Function URL itself, overwriting
+        Authorization, so the token also goes in X-Cognito-Token (which the backend reads
+        first). The signature covers the body, so the SHA-256 of the body is required too.
+        """
+        headers = {
+            'Content-Type': 'application/json',
+            'X-Amz-Content-Sha256': hashlib.sha256(body or b'').hexdigest(),
+        }
+        if self.token:
+            headers['Authorization'] = f'Bearer {self.token}'
+            headers['X-Cognito-Token'] = self.token
+        return headers
     
     def _make_request(
         self,
@@ -66,17 +83,11 @@ class APIClient:
         """
         url = f"{self.base_url}/{endpoint.lstrip('/')}"
         
-        # Build headers
-        req_headers = {
-            'Content-Type': 'application/json',
-        }
-        if self.token:
-            req_headers['Authorization'] = f'Bearer {self.token}'
+        body = json.dumps(data).encode('utf-8') if data else None
+        req_headers = self._base_headers(body)
         if headers:
             req_headers.update(headers)
         
-        # Build request
-        body = json.dumps(data).encode('utf-8') if data else None
         req = urllib.request.Request(
             url,
             data=body,
@@ -200,7 +211,8 @@ class APIClient:
         conversation_id: Optional[str] = None,
         image_base64: Optional[str] = None,
         on_chunk: Optional[Callable[[str], None]] = None,
-        filters: Optional[Dict[str, List[str]]] = None
+        filters: Optional[Dict[str, List[str]]] = None,
+        on_event: Optional[Callable[[str, Dict[str, Any]], None]] = None
     ) -> APIResponse:
         """
         Send a chat message and stream the response.
@@ -212,6 +224,8 @@ class APIClient:
             on_chunk: Callback for each response chunk
             filters: Optional {'shows': [...], 'file_types': [...]} restriction.
                 Empty lists mean no restriction and are not sent.
+            on_event: Callback receiving (event, data) for every event as it arrives,
+                including `status` progress events. Called from the request thread.
             
         Returns:
             APIResponse with final result
@@ -229,15 +243,9 @@ class APIClient:
             if active:
                 payload['filters'] = active
         
-        # Build headers
-        headers = {
-            'Content-Type': 'application/json',
-        }
-        if self.token:
-            headers['Authorization'] = f'Bearer {self.token}'
-        
-        # Build request
         body = json.dumps(payload).encode('utf-8')
+        headers = self._base_headers(body)
+        
         req = urllib.request.Request(
             url,
             data=body,
@@ -264,6 +272,8 @@ class APIClient:
                         try:
                             data = json.loads(line.split(':', 1)[1].strip())
                             events.append({'event': current_event, 'data': data})
+                            if on_event:
+                                on_event(current_event, data)
                             
                             # Process event for text accumulation
                             if current_event == 'enhanced_query':
@@ -416,7 +426,8 @@ class AsyncAPIClient:
         conversation_id: Optional[str] = None,
         image_base64: Optional[str] = None,
         on_chunk: Optional[Callable[[str], None]] = None,
-        filters: Optional[Dict[str, List[str]]] = None
+        filters: Optional[Dict[str, List[str]]] = None,
+        on_event: Optional[Callable[[str, Dict[str, Any]], None]] = None
     ):
         """Start async chat with streaming."""
         self._run_in_thread(
@@ -425,7 +436,8 @@ class AsyncAPIClient:
             conversation_id,
             image_base64,
             on_chunk,
-            filters
+            filters,
+            on_event
         )
 
 

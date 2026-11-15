@@ -54,9 +54,9 @@ ENV TRANSFORMERS_OFFLINE=1
 ENV HF_HUB_OFFLINE=1
 ENV HF_DATASETS_OFFLINE=1
 ENV PORT=8080
-# API Gateway HTTP APIs require buffered Lambda proxy responses. The API layer
-# therefore returns completed responses rather than Function URL streaming.
-ENV AWS_LWA_INVOKE_MODE=buffered
+# CloudFront calls the Lambda Function URL, whose invoke mode is RESPONSE_STREAM, so
+# chat events reach the browser as each step finishes rather than all at the end.
+ENV AWS_LWA_INVOKE_MODE=response_stream
 ENV AWS_LWA_READINESS_CHECK_PATH=/health
 
 # The adapter launches the ASGI server and maps Lambda Function URL requests to it.

@@ -60,7 +60,7 @@ def check_runtime_config(base, get):
 
 
 def check_health(base, get):
-    """CloudFront to API Gateway to Lambda."""
+    """CloudFront to the Lambda Function URL to the backend."""
     status, body = get(f'{base}/api/health')
     expect_status(status, 200, 'GET /api/health')
     try:
@@ -72,7 +72,7 @@ def check_health(base, get):
 
 
 def check_authorizer(base, get):
-    """A protected route must reject anonymous callers with 401, proving the JWT authorizer is attached."""
+    """A protected route must reject anonymous callers with 401, proving the backend checks tokens."""
     status, _ = get(f'{base}/api/conversations')
     expect_status(status, 401, 'GET /api/conversations without a token')
 

@@ -1,8 +1,10 @@
 locals {
   frontend_bucket_name = "cg-assistant-web-001879457662-us-east-1"
   frontend_log_bucket  = "cg-assistant-web-logs-001879457662-us-east-1"
-  cloudfront_origin    = "${aws_apigatewayv2_api.frontend.id}.execute-api.us-east-1.amazonaws.com"
-  cloudfront_url       = "https://${aws_cloudfront_distribution.frontend.domain_name}"
+  # The API origin is the Lambda Function URL host. It streams responses (RESPONSE_STREAM);
+  # API Gateway HTTP APIs cannot, which would make the chat arrive in one piece.
+  api_origin     = replace(trimsuffix(aws_lambda_function_url.assistant.function_url, "/"), "https://", "")
+  cloudfront_url = "https://${aws_cloudfront_distribution.frontend.domain_name}"
 }
 
 data "aws_cloudfront_cache_policy" "disabled" {
@@ -150,74 +152,6 @@ resource "aws_cloudfront_origin_access_control" "api" {
   origin_access_control_origin_type = "lambda"
   signing_behavior                  = "always"
   signing_protocol                  = "sigv4"
-}
-
-resource "aws_apigatewayv2_api" "frontend" {
-  name          = "cg-assistant-frontend-api"
-  protocol_type = "HTTP"
-  description   = "Cognito-protected browser API for the CG Production Assistant"
-}
-
-resource "aws_apigatewayv2_stage" "frontend" {
-  api_id      = aws_apigatewayv2_api.frontend.id
-  name        = "$default"
-  auto_deploy = true
-}
-
-resource "aws_apigatewayv2_integration" "frontend" {
-  api_id                 = aws_apigatewayv2_api.frontend.id
-  integration_type       = "AWS_PROXY"
-  integration_uri        = aws_lambda_function.assistant.invoke_arn
-  integration_method     = "POST"
-  payload_format_version = "2.0"
-}
-
-resource "aws_apigatewayv2_authorizer" "frontend" {
-  api_id           = aws_apigatewayv2_api.frontend.id
-  name             = "cognito-jwt"
-  authorizer_type  = "JWT"
-  identity_sources = ["$request.header.Authorization"]
-  jwt_configuration {
-    audience = [aws_cognito_user_pool_client.frontend.id]
-    issuer   = "https://cognito-idp.us-east-1.amazonaws.com/${aws_cognito_user_pool.users.id}"
-  }
-}
-
-resource "aws_apigatewayv2_route" "health" {
-  api_id             = aws_apigatewayv2_api.frontend.id
-  route_key          = "GET /api/health"
-  authorization_type = "NONE"
-  target             = "integrations/${aws_apigatewayv2_integration.frontend.id}"
-}
-
-resource "aws_apigatewayv2_route" "auth" {
-  api_id             = aws_apigatewayv2_api.frontend.id
-  route_key          = "POST /api/auth"
-  authorization_type = "NONE"
-  target             = "integrations/${aws_apigatewayv2_integration.frontend.id}"
-}
-
-resource "aws_apigatewayv2_route" "signup" {
-  api_id             = aws_apigatewayv2_api.frontend.id
-  route_key          = "POST /api/signup"
-  authorization_type = "NONE"
-  target             = "integrations/${aws_apigatewayv2_integration.frontend.id}"
-}
-
-resource "aws_apigatewayv2_route" "authenticated" {
-  api_id             = aws_apigatewayv2_api.frontend.id
-  route_key          = "$default"
-  authorization_type = "JWT"
-  authorizer_id      = aws_apigatewayv2_authorizer.frontend.id
-  target             = "integrations/${aws_apigatewayv2_integration.frontend.id}"
-}
-
-resource "aws_lambda_permission" "api_gateway_invoke" {
-  statement_id  = "AllowApiGatewayInvoke"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.assistant.function_name
-  principal     = "apigateway.amazonaws.com"
-  source_arn    = "${aws_apigatewayv2_api.frontend.execution_arn}/*/*"
 }
 
 resource "aws_cloudfront_response_headers_policy" "security" {
@@ -397,8 +331,9 @@ resource "aws_cloudfront_distribution" "frontend" {
   }
 
   origin {
-    domain_name = local.cloudfront_origin
-    origin_id   = "assistant-api"
+    domain_name              = local.api_origin
+    origin_id                = "assistant-api"
+    origin_access_control_id = aws_cloudfront_origin_access_control.api.id
     custom_origin_config {
       http_port              = 80
       https_port             = 443

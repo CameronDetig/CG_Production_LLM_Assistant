@@ -131,7 +131,7 @@ The image runs a FastAPI server behind the Lambda Web Adapter, so test it over H
 raw `aws lambda invoke` payload:
 
 ```bash
-# Through the deployed site (CloudFront -> API Gateway -> Lambda)
+# Through the deployed site (CloudFront -> Lambda Function URL)
 curl https://<cloudfront-domain>/api/health   # {"status":"ok"}
 
 # Or the image itself, locally

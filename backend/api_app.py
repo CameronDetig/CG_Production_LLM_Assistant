@@ -7,7 +7,7 @@ lets the agent and service modules remain usable from diagnostics and tests.
 import asyncio
 import logging
 import os
-from typing import Annotated, Any, AsyncGenerator, Dict, List, Optional
+from typing import Annotated, Any, AsyncGenerator, Callable, Dict, List, Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -34,11 +34,14 @@ def run_chat_agent_request(
     conversation_history: list,
     uploaded_image_base64: Optional[str],
     filters: Optional[Dict[str, Any]] = None,
+    on_event: Optional[Callable[[str, Dict[str, Any]], None]] = None,
 ) -> Dict[str, Any]:
     """Load the heavyweight agent stack only for an actual chat request."""
     from src.core.chat_agent import run_chat_agent
 
-    return run_chat_agent(query, conversation_history, uploaded_image_base64, 2, filters)
+    return run_chat_agent(
+        query, conversation_history, uploaded_image_base64, 2, filters, on_event
+    )
 
 
 def filter_options_request() -> Dict[str, Any]:
@@ -145,6 +148,16 @@ async def chat_events(
         yield sse("filters", filters)
     yield sse("status", {"stage": "analyzing", "message": "Analyzing your request"})
 
+    # The agent runs in a worker thread and reports each step (interpreted request, SQL,
+    # results, stage changes) as it happens. Events cross back to the event loop through
+    # this queue; the task's done callback queues a sentinel that arrives after them all.
+    loop = asyncio.get_running_loop()
+    events: asyncio.Queue = asyncio.Queue()
+    finished = object()
+
+    def on_event(event: str, data: Dict[str, Any]) -> None:
+        loop.call_soon_threadsafe(events.put_nowait, (event, data))
+
     task = asyncio.create_task(
         asyncio.to_thread(
             run_chat_agent_request,
@@ -152,54 +165,33 @@ async def chat_events(
             history,
             payload.uploaded_image_base64,
             filters,
+            on_event,
         )
     )
+    task.add_done_callback(lambda _: events.put_nowait(finished))
     try:
-        while not task.done():
+        while True:
             if await request.is_disconnected():
                 task.cancel()
                 return
-            done, _ = await asyncio.wait({task}, timeout=12)
-            if not done:
+            try:
+                item = await asyncio.wait_for(events.get(), timeout=12)
+            except asyncio.TimeoutError:
                 # SSE comments keep CloudFront and browsers from treating a long model or
                 # database operation as an idle response.
                 yield ": heartbeat\n\n"
+                continue
+            if item is finished:
+                break
+            event, data = item
+            yield sse(event, data)
 
         result = await task
-        if result.get("enhanced_query"):
-            yield sse("enhanced_query", {"query": result["enhanced_query"]})
-
-        all_queries = result.get("all_sql_queries", [])
-        for query_info in all_queries:
-            attempt = query_info.get("attempt", 1)
-            yield sse("sql_query", {"query": query_info["sql"], "attempt": attempt})
-            if query_info.get("results") is not None:
-                yield sse(
-                    "query_results",
-                    {
-                        "count": query_info.get("result_count", 0),
-                        "attempt": attempt,
-                        "results": query_info["results"][:5],
-                    },
-                )
-            if query_info.get("feedback"):
-                yield sse(
-                    "retry_feedback",
-                    {"feedback": query_info["feedback"], "attempt": attempt},
-                )
-
-        if not all_queries and result.get("sql_query"):
-            yield sse("sql_query", {"query": result["sql_query"], "attempt": 1})
-            query_results = result.get("query_results", [])
-            if query_results:
-                yield sse(
-                    "query_results",
-                    {"count": len(query_results), "attempt": 1, "results": query_results[:5]},
-                )
 
         for thumbnail in result.get("thumbnails_to_display", []):
             yield sse("thumbnail", thumbnail)
 
+        yield sse("status", {"stage": "answering", "message": "Writing the answer"})
         yield sse("answer_start", {})
         candidate = result.get("final_answer") or "No answer was generated."
         chunks = stream_final_answer_request(payload.query, candidate)

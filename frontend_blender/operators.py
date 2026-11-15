@@ -14,7 +14,7 @@ from bpy.props import StringProperty, BoolProperty
 from bpy.types import Operator
 
 from .api_client import get_api_client, reset_api_client, APIClient
-from .utils import image_to_base64, format_chat_response, get_temp_image_path
+from .utils import image_to_base64, format_chat_response, format_progress, get_temp_image_path
 
 
 # ============================================================================
@@ -507,10 +507,33 @@ class CG_OT_SendMessage(Operator):
     _response_queue = None
     _thread = None
     _accumulated_text = ""
+    _events = None
+    _progress = None
+
+    def _show_progress(self, context):
+        """Apply events the request thread has queued; bpy data is only touched here."""
+        changed = False
+        while True:
+            try:
+                event, data = self._events.get_nowait()
+            except queue.Empty:
+                break
+            self._progress.append({'event': event, 'data': data})
+            if event == 'status':
+                context.scene.cg_assistant.loading_stage = data.get('message', '')
+            changed = True
+        if not changed:
+            return
+        if len(context.scene.cg_chat_history) > 0:
+            context.scene.cg_chat_history[-1].content = format_progress(self._progress)
+        for area in context.screen.areas if context.screen else []:
+            if area.type == 'VIEW_3D':
+                area.tag_redraw()
     
     def modal(self, context, event):
         if event.type == 'TIMER':
             props = context.scene.cg_assistant
+            self._show_progress(context)
             
             # Check for response
             response = self._client.get_response()
@@ -549,6 +572,7 @@ class CG_OT_SendMessage(Operator):
                         context.scene.cg_chat_history[-1].content = f"Error: {error_msg}"
                 
                 props.is_loading = False
+                props.loading_stage = ""
                 props.has_image_attached = False
                 props.captured_image_path = ""
                 self.cancel(context)
@@ -578,19 +602,24 @@ class CG_OT_SendMessage(Operator):
         assistant_msg.content = "Thinking..."
         
         props.is_loading = True
+        props.loading_stage = ""
         
         # Prepare image if attached
         image_base64 = None
         if props.has_image_attached and props.captured_image_path:
             image_base64 = image_to_base64(props.captured_image_path)
         
-        # Send request
+        # Send request. Progress events arrive on the request thread and are applied to
+        # the UI by the modal timer (bpy data must not be touched from other threads).
+        self._events = queue.Queue()
+        self._progress = []
         self._client = get_api_client(context)
         self._client.chat_stream_async(
             query=props.message_input or "Find similar images to the uploaded image",
             conversation_id=props.current_conversation_id if props.current_conversation_id else None,
             image_base64=image_base64,
-            filters=selected_filters(context.scene)
+            filters=selected_filters(context.scene),
+            on_event=lambda event, data: self._events.put((event, data))
         )
         
         # Clear input
