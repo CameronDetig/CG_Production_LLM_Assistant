@@ -16,7 +16,7 @@ To run the API itself locally, see "Local server" in `backend/README.md`.
 ## Running
 
 ```sh
-# Backend (mocked). Needs boto3, python-jose[cryptography], requests, sqlglot, fastapi and httpx.
+# Backend (mocked). Needs boto3, python-jose[cryptography], requests, sqlglot, psycopg2-binary, fastapi and httpx.
 python -m unittest discover -s tests/backend -p 'test_*.py'
 python tests/backend/test_warmup.py
 
