@@ -72,7 +72,7 @@ The old direct deployment scripts are disabled to prevent competing ownership.
 
 Releases reject any plan that deletes or replaces a resource. To retire one, replace its `resource` block with a `removed` block using `lifecycle { destroy = false }`. The plan then shows a `forget` action, which releases allow. After that release is applied, Terraform no longer manages the resource, and you delete it by hand with an administrator account. Do it in this order: if the resource is deleted first, the next plan tries to recreate it. Keep the `removed` blocks afterwards as history, like the import blocks.
 
-The retired API Gateway HTTP API was removed this way (`removed` blocks in `frontend.tf`). After its release was applied, the manual cleanup was:
+The retired API Gateway HTTP API was removed this way on 2026-11-15 (`removed` blocks in `frontend.tf`). After its release was applied, the manual cleanup was:
 
 ```sh
 api_id=$(aws apigatewayv2 get-apis --region us-east-1 --query "Items[?Name=='cg-assistant-frontend-api'].ApiId" --output text)

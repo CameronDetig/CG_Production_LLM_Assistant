@@ -70,6 +70,6 @@ Repository `cg-chatbot` (defined in `infra/resources.tf`):
 - No authenticated end-to-end smoke test; the post-deploy smoke test only covers anonymous behavior.
 - The `production` GitHub environment has no required reviewers, so both approvals (backend and frontend) are deliberate manual dispatches rather than a recorded reviewer sign-off.
 - Actions are pinned by tag rather than commit SHA, and there is no Dependabot for `github-actions`.
-- The retired API Gateway HTTP API is being removed: `removed` blocks in `infra/frontend.tf` make Terraform forget it, and once that release is applied it is deleted by hand (see "Removing a resource" in `infra/README.md`). After that, the `apigateway:*` actions in `infra/bootstrap/frontend-policy.tf` can be removed in a reviewed bootstrap apply.
+- The `apigateway:*` actions in `infra/bootstrap/frontend-policy.tf` are no longer needed, since the retired API Gateway HTTP API has been forgotten by Terraform and deleted by hand (see "Removing a resource" in `infra/README.md`). Remove them in a reviewed bootstrap apply.
 
 These are tracked as local specs and will be removed from this list as they are fixed.
