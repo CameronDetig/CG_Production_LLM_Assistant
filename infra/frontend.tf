@@ -286,8 +286,12 @@ resource "aws_wafv2_web_acl" "frontend" {
       sampled_requests_enabled   = true
     }
   }
+  # The Free plan allows IP-based rate limiting but not byte-match conditions, so this
+  # limit covers every path rather than only /api/*. Normal use (page load, chat, Blender
+  # add-on) stays far below it. /api/auth and /api/signup lost their tighter 50-per-5-minute
+  # limit; Cognito's failed-sign-in lockout and email-sending cap still apply to them.
   rule {
-    name     = "CompatibilityAuthRateLimit"
+    name     = "IpRateLimit"
     priority = 1
     action {
       block {}
@@ -296,74 +300,12 @@ resource "aws_wafv2_web_acl" "frontend" {
       rate_based_statement {
         aggregate_key_type    = "IP"
         evaluation_window_sec = 300
-        limit                 = 50
-        scope_down_statement {
-          or_statement {
-            statement {
-              byte_match_statement {
-                positional_constraint = "EXACTLY"
-                search_string         = "/api/auth"
-                field_to_match {
-                  uri_path {}
-                }
-                text_transformation {
-                  priority = 0
-                  type     = "NONE"
-                }
-              }
-            }
-            statement {
-              byte_match_statement {
-                positional_constraint = "EXACTLY"
-                search_string         = "/api/signup"
-                field_to_match {
-                  uri_path {}
-                }
-                text_transformation {
-                  priority = 0
-                  type     = "NONE"
-                }
-              }
-            }
-          }
-        }
-      }
-    }
-    visibility_config {
-      cloudwatch_metrics_enabled = true
-      metric_name                = "cg-assistant-auth-rate-limit"
-      sampled_requests_enabled   = true
-    }
-  }
-  rule {
-    name     = "ApiRateLimit"
-    priority = 2
-    action {
-      block {}
-    }
-    statement {
-      rate_based_statement {
-        aggregate_key_type    = "IP"
-        evaluation_window_sec = 300
         limit                 = 300
-        scope_down_statement {
-          byte_match_statement {
-            positional_constraint = "STARTS_WITH"
-            search_string         = "/api/"
-            field_to_match {
-              uri_path {}
-            }
-            text_transformation {
-              priority = 0
-              type     = "NONE"
-            }
-          }
-        }
       }
     }
     visibility_config {
       cloudwatch_metrics_enabled = true
-      metric_name                = "cg-assistant-api-rate-limit"
+      metric_name                = "cg-assistant-ip-rate-limit"
       sampled_requests_enabled   = true
     }
   }
