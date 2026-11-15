@@ -70,5 +70,6 @@ Repository `cg-chatbot` (defined in `infra/resources.tf`):
 - No authenticated end-to-end smoke test; the post-deploy smoke test only covers anonymous behavior.
 - The `production` GitHub environment has no required reviewers, so both approvals (backend and frontend) are deliberate manual dispatches rather than a recorded reviewer sign-off.
 - Actions are pinned by tag rather than commit SHA, and there is no Dependabot for `github-actions`.
+- The retired API Gateway HTTP API (`aws_apigatewayv2_*` and `aws_lambda_permission.api_gateway_invoke` in `infra/frontend.tf`) still exists. CloudFront no longer routes to it, but releases reject deletions, so removing it needs a separate migration. After that, the `apigateway:*` actions in `infra/bootstrap/frontend-policy.tf` can go too.
 
 These are tracked as local specs and will be removed from this list as they are fixed.

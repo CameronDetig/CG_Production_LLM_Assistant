@@ -154,6 +154,77 @@ resource "aws_cloudfront_origin_access_control" "api" {
   signing_protocol                  = "sigv4"
 }
 
+# RETIRED: CloudFront no longer routes to this API (see local.api_origin), and the Lambda's
+# streaming adapter mode does not answer API Gateway invocations. The resources stay only
+# because release tooling rejects deletions; remove them in a separate, reviewed migration.
+resource "aws_apigatewayv2_api" "frontend" {
+  name          = "cg-assistant-frontend-api"
+  protocol_type = "HTTP"
+  description   = "Cognito-protected browser API for the CG Production Assistant"
+}
+
+resource "aws_apigatewayv2_stage" "frontend" {
+  api_id      = aws_apigatewayv2_api.frontend.id
+  name        = "$default"
+  auto_deploy = true
+}
+
+resource "aws_apigatewayv2_integration" "frontend" {
+  api_id                 = aws_apigatewayv2_api.frontend.id
+  integration_type       = "AWS_PROXY"
+  integration_uri        = aws_lambda_function.assistant.invoke_arn
+  integration_method     = "POST"
+  payload_format_version = "2.0"
+}
+
+resource "aws_apigatewayv2_authorizer" "frontend" {
+  api_id           = aws_apigatewayv2_api.frontend.id
+  name             = "cognito-jwt"
+  authorizer_type  = "JWT"
+  identity_sources = ["$request.header.Authorization"]
+  jwt_configuration {
+    audience = [aws_cognito_user_pool_client.frontend.id]
+    issuer   = "https://cognito-idp.us-east-1.amazonaws.com/${aws_cognito_user_pool.users.id}"
+  }
+}
+
+resource "aws_apigatewayv2_route" "health" {
+  api_id             = aws_apigatewayv2_api.frontend.id
+  route_key          = "GET /api/health"
+  authorization_type = "NONE"
+  target             = "integrations/${aws_apigatewayv2_integration.frontend.id}"
+}
+
+resource "aws_apigatewayv2_route" "auth" {
+  api_id             = aws_apigatewayv2_api.frontend.id
+  route_key          = "POST /api/auth"
+  authorization_type = "NONE"
+  target             = "integrations/${aws_apigatewayv2_integration.frontend.id}"
+}
+
+resource "aws_apigatewayv2_route" "signup" {
+  api_id             = aws_apigatewayv2_api.frontend.id
+  route_key          = "POST /api/signup"
+  authorization_type = "NONE"
+  target             = "integrations/${aws_apigatewayv2_integration.frontend.id}"
+}
+
+resource "aws_apigatewayv2_route" "authenticated" {
+  api_id             = aws_apigatewayv2_api.frontend.id
+  route_key          = "$default"
+  authorization_type = "JWT"
+  authorizer_id      = aws_apigatewayv2_authorizer.frontend.id
+  target             = "integrations/${aws_apigatewayv2_integration.frontend.id}"
+}
+
+resource "aws_lambda_permission" "api_gateway_invoke" {
+  statement_id  = "AllowApiGatewayInvoke"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.assistant.function_name
+  principal     = "apigateway.amazonaws.com"
+  source_arn    = "${aws_apigatewayv2_api.frontend.execution_arn}/*/*"
+}
+
 resource "aws_cloudfront_response_headers_policy" "security" {
   name = "cg-assistant-security-headers"
   security_headers_config {
