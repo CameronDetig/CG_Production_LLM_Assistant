@@ -35,6 +35,16 @@ terraform -chdir=infra/bootstrap init -migrate-state "-backend-config=backend.hc
 
 Retain the bootstrap state backup until remote migration is verified. Include `infra/bootstrap/backend.tf` in a later commit after migration so subsequent checkouts initialize the remote backend. Do not rerun a local-bootstrap apply against an already bootstrapped account.
 
+Later bootstrap changes (for example, CI role permissions) use the remote state, with an administrator signed in. If the AWS CLI is signed in with `aws login`, export its temporary credentials first: the Terraform AWS provider cannot read that session type and otherwise fails with "No valid credential sources found".
+
+```sh
+eval "$(aws configure export-credentials --format env)"
+terraform -chdir=infra/bootstrap init -backend-config=backend.hcl
+terraform -chdir=infra/bootstrap plan -out=bootstrap.tfplan
+# After reviewing:
+terraform -chdir=infra/bootstrap apply bootstrap.tfplan
+```
+
 Configure GitHub environments `production` (and `production-scan` in the extractor) to allow **main only**. Add required reviewers if supported by your GitHub plan. Without reviewer support, the separate manually dispatched approval workflow is the approval gate. Only trusted maintainers should have write/workflow-dispatch access. Protect main and review workflow/IAM changes. OIDC role trust uses exact repository/main subjects for build/plan and the named environment for apply/scan. No AWS access keys belong in GitHub secrets.
 
 ## Import baseline before enabling releases
