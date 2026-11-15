@@ -105,6 +105,7 @@ The distribution is billed on the CloudFront flat-rate **Free** plan ($0/month).
 Plan rules this configuration must keep to:
 - A WAF web ACL must stay associated with the distribution. Keep `aws_wafv2_web_acl.frontend` and stay within **5 rules** (2 are used today). Rules can't use byte-match, header-based or regex conditions, so a rate limit can't be scoped to particular paths; CAPTCHA and Bot Control also need a paid tier. The console names the offending feature when you hover over a greyed-out plan, while the API only reports "not eligible".
 - Use **AWS-managed** response headers, cache and origin request policies only. Custom ones need the Business tier. The CSP lives in `frontend_web/csp.ts` as a meta tag instead.
+- Subscribing sets the price class to `PriceClass_All` (every edge location, covered by the plan price), so Terraform declares `PriceClass_All` too. A lower price class makes every plan try to revert it.
 - No CloudFront access logs or WAF request logs (Pro tier). The `frontend_logs` bucket still receives S3 server access logs for the site bucket.
 
 AWS provider 6.23.0 can't manage plan subscriptions, so subscribing is a one-time step outside Terraform. Do it after the Terraform releases that removed the custom headers policy, the logging and the path-scoped WAF rate rules:

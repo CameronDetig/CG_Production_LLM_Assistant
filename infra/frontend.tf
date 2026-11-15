@@ -326,8 +326,10 @@ resource "aws_cloudfront_distribution" "frontend" {
   enabled             = true
   comment             = "CG Production Assistant web and API"
   default_root_object = "index.html"
-  price_class         = "PriceClass_100"
-  web_acl_id          = aws_wafv2_web_acl.frontend.arn
+  # Subscribing to a flat-rate plan switches the distribution to every edge location, and
+  # the plan price covers it. Keep this in step, or each plan tries to revert it.
+  price_class = "PriceClass_All"
+  web_acl_id  = aws_wafv2_web_acl.frontend.arn
 
   origin {
     domain_name              = aws_s3_bucket.frontend.bucket_regional_domain_name
