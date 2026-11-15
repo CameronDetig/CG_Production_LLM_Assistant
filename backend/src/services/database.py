@@ -31,6 +31,13 @@ FILTER_OPTIONS_TTL_SECONDS = 600
 _filter_options_cache: Optional[Dict[str, Any]] = None
 _filter_options_loaded_at = 0.0
 
+# The metadata database is Aurora Serverless v2, which pauses (and stops billing compute)
+# only while no connections are open. A warm Lambda container would otherwise hold its
+# pooled connections open indefinitely, so the server closes sessions idle this long.
+IDLE_SESSION_TIMEOUT_MS = 300_000
+# A paused database takes roughly 15 seconds to accept its first connection.
+CONNECT_TIMEOUT_SECONDS = 30
+
 # AST node types that must never appear in LLM-generated SQL, even nested
 # inside a CTE (e.g. `WITH x AS (DELETE FROM files RETURNING *) SELECT * FROM x`).
 _FORBIDDEN_SQL_NODES = (
@@ -39,21 +46,58 @@ _FORBIDDEN_SQL_NODES = (
 )
 
 
+def _create_pool(user: Optional[str], password: Optional[str]) -> pool.SimpleConnectionPool:
+    """Open a pool against the metadata database for one database role."""
+    return psycopg2.pool.SimpleConnectionPool(
+        minconn=1,
+        maxconn=5,
+        host=os.environ.get('DB_HOST'),
+        database=os.environ.get('DB_NAME'),
+        user=user,
+        password=password,
+        port=os.environ.get('DB_PORT', '5432'),
+        connect_timeout=CONNECT_TIMEOUT_SECONDS,
+        options=f'-c idle_session_timeout={IDLE_SESSION_TIMEOUT_MS}',
+    )
+
+
+def _is_alive(conn) -> bool:
+    """Whether a pooled connection still reaches the server."""
+    if conn.closed:
+        return False
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute('SELECT 1')
+        # The probe opened a transaction; end it so the caller starts clean.
+        conn.rollback()
+        return True
+    except psycopg2.Error:
+        return False
+
+
+def _checkout(connection_pool_: pool.SimpleConnectionPool):
+    """
+    Borrow a live connection, replacing any the server closed while it sat idle.
+
+    The server ends sessions idle for IDLE_SESSION_TIMEOUT_MS, and psycopg2 only finds out
+    when the next statement fails, so each borrowed connection is probed first.
+    """
+    for _ in range(connection_pool_.maxconn + 1):
+        conn = connection_pool_.getconn()
+        if _is_alive(conn):
+            return conn
+        logger.info("Discarding a stale database connection")
+        connection_pool_.putconn(conn, close=True)
+    raise psycopg2.OperationalError("Could not obtain a live database connection")
+
+
 def init_db_connection():
     """Initialize PostgreSQL connection pool."""
     global connection_pool
 
     if connection_pool is None:
         try:
-            connection_pool = psycopg2.pool.SimpleConnectionPool(
-                minconn=1,
-                maxconn=5,
-                host=os.environ.get('DB_HOST'),
-                database=os.environ.get('DB_NAME'),
-                user=os.environ.get('DB_USER'),
-                password=os.environ.get('DB_PASSWORD'),
-                port=os.environ.get('DB_PORT', '5432')
-            )
+            connection_pool = _create_pool(os.environ.get('DB_USER'), os.environ.get('DB_PASSWORD'))
             logger.info("Database connection pool initialized")
         except Exception as e:
             logger.error(f"Failed to initialize database pool: {str(e)}", exc_info=True)
@@ -64,7 +108,7 @@ def get_connection():
     """Get a connection from the pool."""
     if connection_pool is None:
         init_db_connection()
-    return connection_pool.getconn()
+    return _checkout(connection_pool)
 
 
 def release_connection(conn):
@@ -79,15 +123,8 @@ def init_readonly_db_connection():
 
     if readonly_connection_pool is None:
         try:
-            readonly_connection_pool = psycopg2.pool.SimpleConnectionPool(
-                minconn=1,
-                maxconn=5,
-                host=os.environ.get('DB_HOST'),
-                database=os.environ.get('DB_NAME'),
-                user=os.environ.get('DB_READONLY_USER'),
-                password=os.environ.get('DB_READONLY_PASSWORD'),
-                port=os.environ.get('DB_PORT', '5432')
-            )
+            readonly_connection_pool = _create_pool(
+                os.environ.get('DB_READONLY_USER'), os.environ.get('DB_READONLY_PASSWORD'))
             logger.info("Read-only database connection pool initialized")
         except Exception as e:
             logger.error(f"Failed to initialize read-only database pool: {str(e)}", exc_info=True)
@@ -98,7 +135,7 @@ def get_readonly_connection():
     """Get a connection from the read-only pool."""
     if readonly_connection_pool is None:
         init_readonly_db_connection()
-    return readonly_connection_pool.getconn()
+    return _checkout(readonly_connection_pool)
 
 
 def release_readonly_connection(conn):
